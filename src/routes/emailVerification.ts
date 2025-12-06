@@ -1,39 +1,75 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import PendingUser from '../models/PendingUser.js';
 import { generateToken } from '../lib/jwt.js';
 
 const router = Router();
 
-// Get transporter with lazy evaluation (loads env vars at runtime)
-const getTransporter = () => {
-  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-  // Use port 465 (SSL) by default for better cloud compatibility
-  const port = Number(process.env.SMTP_PORT || 465);
-  const secure = port === 465; // true for 465, false for other ports
-  
-  console.log('🔍 SMTP Environment Variables Check:');
-  console.log('   SMTP_HOST:', host);
-  console.log('   SMTP_PORT:', port);
-  console.log('   SMTP_SECURE:', secure);
-  console.log('   SMTP_USER:', process.env.SMTP_USER ? 'SET (' + process.env.SMTP_USER.substring(0, 20) + '...)' : 'NOT SET');
-  console.log('   SMTP_PASS:', process.env.SMTP_PASS ? 'SET' : 'NOT SET');
-  
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+// Send email using Brevo HTTP API (works on all cloud platforms)
+async function sendEmailViaBrevo(to: string, subject: string, htmlContent: string): Promise<void> {
+  const apiKey = process.env.BREVO_API_KEY;
+  const fromEmail = process.env.MAIL_FROM;
+  const fromName = process.env.MAIL_FROM_NAME || 'Auxin';
+
+  console.log('📧 Brevo API Configuration:');
+  console.log('   BREVO_API_KEY:', apiKey ? 'SET (' + apiKey.substring(0, 10) + '...)' : 'NOT SET');
+  console.log('   MAIL_FROM:', fromEmail || 'NOT SET');
+  console.log('   MAIL_FROM_NAME:', fromName);
+
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY environment variable is not set. Get your API key from Brevo Dashboard → SMTP & API → API Keys');
+  }
+
+  if (!fromEmail) {
+    throw new Error('MAIL_FROM environment variable is not set. Set it to your verified sender email in Brevo.');
+  }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
     },
-    connectionTimeout: 10000, // 10 second timeout
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
+    body: JSON.stringify({
+      sender: {
+        name: fromName,
+        email: fromEmail,
+      },
+      to: [{ email: to }],
+      subject,
+      htmlContent,
+    }),
   });
-};
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    console.error('❌ Brevo API Error:', response.status, errorData);
+    throw new Error(`Brevo API error: ${response.status} - ${JSON.stringify(errorData)}`);
+  }
+
+  const result = await response.json();
+  console.log('✅ Email sent via Brevo API:', result);
+}
+
+// Generate OTP email HTML
+function getOtpEmailHtml(code: string): string {
+  return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto">
+    <div style="background:#000;padding:20px;text-align:center">
+      <h1 style="color:#39FF14;margin:0">AUXIN</h1>
+    </div>
+    <div style="background:#fff;padding:30px">
+      <h2 style="color:#333;margin-top:0">Verify Your Email</h2>
+      <p style="color:#666;font-size:16px">Thank you for signing up! Please enter the following verification code to complete your registration:</p>
+      <div style="background:#f5f5f5;border:2px solid #39FF14;padding:20px;text-align:center;margin:30px 0;border-radius:8px">
+        <div style="font-size:32px;letter-spacing:12px;font-weight:bold;color:#39FF14;font-family:'Courier New',monospace">${code}</div>
+      </div>
+      <p style="color:#666;font-size:14px">This code will expire in 2 minutes.</p>
+      <p style="color:#999;font-size:12px;margin-top:30px;padding-top:20px;border-top:1px solid #eee">If you didn't create an account with Auxin, please ignore this email.</p>
+    </div>
+  </div>`;
+}
 
 // POST /send-otp
 router.post('/send-otp', async (req: Request, res: Response) => {
@@ -42,11 +78,11 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     console.log('📧 Send OTP request received for:', email);
     
     // Validate environment variables
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      console.error('❌ SMTP credentials not configured!');
+    if (!process.env.BREVO_API_KEY) {
+      console.error('❌ BREVO_API_KEY not configured!');
       return res.status(500).json({ 
         success: false, 
-        error: 'Email service not configured. Please set SMTP_USER and SMTP_PASS environment variables.'
+        error: 'Email service not configured. Please set BREVO_API_KEY environment variable.'
       });
     }
     
@@ -83,97 +119,13 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     }
     console.log('✅ OTP code saved to database:', code);
 
-    // IMPORTANT: Brevo requires the "from" email to be a verified sender in your Brevo account
-    // 
-    // To fix the "sender is not valid" error:
-    // 1. Go to Brevo Dashboard → Settings → Senders & IP → Add a sender
-    // 2. Add and verify your email
-    // 3. Set MAIL_FROM environment variable to that verified email
-    // 
-    // The SMTP login email cannot be used as "from" address
-    
-    const smtpUser = process.env.SMTP_USER;
-    
-    // Use MAIL_FROM if set, otherwise try to use a verified email
-    // For now, as a temporary solution, you can use your Gmail after verifying it in Brevo
-    let from = process.env.MAIL_FROM;
-    
-    // If MAIL_FROM not set, provide helpful error
-    if (!from) {
-      console.error('❌ MAIL_FROM environment variable not set!');
-      console.error('📝 Instructions:');
-      console.error('   1. Go to Brevo Dashboard → Settings → Senders & IP');
-      console.error('   2. Click "Add a sender" and verify your email');
-      console.error('   3. Set MAIL_FROM environment variable to that verified email');
-      console.error('   4. Example: MAIL_FROM=your-verified-email@example.com');
-      
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Email sender not configured. Please verify a sender email in Brevo and set MAIL_FROM environment variable.'
-      });
-    }
-    
-    // Validate it's not the SMTP login format (common mistake)
-    if (from.includes('@smtp-brevo.com')) {
-      console.error('❌ MAIL_FROM cannot be the SMTP login email format.');
-      console.error('❌ Use a verified sender email instead (e.g., your Gmail address)');
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Invalid sender email. Please use a verified sender email from your Brevo account.'
-      });
-    }
-    
-    console.log('📤 Attempting to send email via SMTP...');
-    console.log('📤 SMTP Config:', {
-      host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-      port: process.env.SMTP_PORT || 587,
-      user: smtpUser ? '***configured***' : 'NOT SET',
-      from: from
-    });
-
-    // Get transporter instance
-    const transporter = getTransporter();
-    
-    // Verify SMTP connection first
-    try {
-      await transporter.verify();
-      console.log('✅ SMTP connection verified successfully');
-    } catch (verifyError: any) {
-      console.error('❌ SMTP verification failed:', verifyError);
-      throw new Error(`SMTP connection failed: ${verifyError.message}`);
-    }
-
-    try {
-      const mailResult = await transporter.sendMail({
-        from: `Auxin <${from}>`,
-        to: normalizedEmail,
-        subject: 'Your Auxin Verification Code',
-        html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto">
-                <div style="background:#000;padding:20px;text-align:center">
-                  <h1 style="color:#39FF14;margin:0">AUXIN</h1>
-                </div>
-                <div style="background:#fff;padding:30px">
-                  <h2 style="color:#333;margin-top:0">Verify Your Email</h2>
-                  <p style="color:#666;font-size:16px">Thank you for signing up! Please enter the following verification code to complete your registration:</p>
-                  <div style="background:#f5f5f5;border:2px solid #39FF14;padding:20px;text-align:center;margin:30px 0;border-radius:8px">
-                    <div style="font-size:32px;letter-spacing:12px;font-weight:bold;color:#39FF14;font-family:'Courier New',monospace">${code}</div>
-                  </div>
-                  <p style="color:#666;font-size:14px">This code will expire in 2 minutes.</p>
-                  <p style="color:#999;font-size:12px;margin-top:30px;padding-top:20px;border-top:1px solid #eee">If you didn't create an account with Auxin, please ignore this email.</p>
-                </div>
-              </div>`,
-      });
-      console.log('✅ Email sent successfully!', mailResult.messageId);
-    } catch (mailError: any) {
-      console.error('❌ SMTP Error:', mailError);
-      console.error('❌ SMTP Error Details:', {
-        code: mailError.code,
-        command: mailError.command,
-        response: mailError.response,
-        responseCode: mailError.responseCode
-      });
-      throw mailError; // Re-throw to be caught by outer catch
-    }
+    // Send email using Brevo HTTP API
+    console.log('📤 Sending email via Brevo API...');
+    await sendEmailViaBrevo(
+      normalizedEmail,
+      'Your Auxin Verification Code',
+      getOtpEmailHtml(code)
+    );
 
     return res.json({ success: true, message: 'Verification code sent successfully' });
   } catch (err: any) {
@@ -315,5 +267,3 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
 });
 
 export default router;
-
-
