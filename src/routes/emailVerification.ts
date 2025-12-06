@@ -248,9 +248,9 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
     console.log('🔍 Code verification:', {
       isExpired,
       codeMatches,
-      storedCode: user.emailVerificationCode,
+      storedCode: storedCode ? '***' : 'none',
       providedCode: code,
-      expiresAt: user.emailVerificationExpires,
+      expiresAt: storedExpires,
       now: new Date()
     });
 
@@ -293,8 +293,15 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       }
     });
   } catch (err) {
-    console.error('verify-otp error', err);
-    return res.status(500).json({ success: false, error: 'Internal error' });
+    console.error('❌ verify-otp error:', err);
+    if (err instanceof Error) {
+      console.error('❌ Error stack:', err.stack);
+    }
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal error',
+      message: process.env.NODE_ENV === 'development' ? (err instanceof Error ? err.message : String(err)) : undefined
+    });
   }
 });
 
