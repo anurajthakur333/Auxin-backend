@@ -1,5 +1,15 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface IPaymentInfo {
+  paypalOrderId?: string;
+  paypalPayerId?: string;
+  paypalTransactionId?: string;
+  amount: string;
+  currency: string;
+  status: 'pending' | 'completed' | 'failed' | 'refunded';
+  paidAt?: Date;
+}
+
 export interface IAppointment extends Document {
   _id: string;
   userId: string;
@@ -9,9 +19,27 @@ export interface IAppointment extends Document {
   time: string;
   timezone?: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  // Payment fields
+  paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
+  paymentInfo?: IPaymentInfo;
   createdAt: Date;
   updatedAt: Date;
 }
+
+// Payment info sub-schema
+const PaymentInfoSchema = new Schema({
+  paypalOrderId: { type: String },
+  paypalPayerId: { type: String },
+  paypalTransactionId: { type: String },
+  amount: { type: String, required: true },
+  currency: { type: String, required: true, default: 'USD' },
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'refunded'],
+    default: 'pending'
+  },
+  paidAt: { type: Date }
+}, { _id: false });
 
 const AppointmentSchema = new Schema<IAppointment>({
   userId: {
@@ -72,8 +100,15 @@ const AppointmentSchema = new Schema<IAppointment>({
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'cancelled'],
-    default: 'confirmed'
-  }
+    default: 'pending' // Default to pending until payment is completed
+  },
+  // Payment fields
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'refunded'],
+    default: 'pending'
+  },
+  paymentInfo: PaymentInfoSchema
 }, {
   timestamps: true,
   toJSON: {
@@ -86,6 +121,9 @@ const AppointmentSchema = new Schema<IAppointment>({
       if (ret.date) {
         ret.date = (ret.date as Date).toISOString().split('T')[0];
       }
+      
+      // Include payment status for frontend
+      ret.paymentStatus = ret.paymentStatus || 'pending';
       
       return ret;
     }
@@ -101,6 +139,12 @@ AppointmentSchema.index({ userEmail: 1 });
 
 // Index for status queries
 AppointmentSchema.index({ status: 1 });
+
+// Index for PayPal order lookup
+AppointmentSchema.index({ 'paymentInfo.paypalOrderId': 1 });
+
+// Index for payment status queries
+AppointmentSchema.index({ paymentStatus: 1 });
 
 // Static method to generate available time slots
 AppointmentSchema.statics.generateTimeSlots = function() {

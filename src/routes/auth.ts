@@ -1,6 +1,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import PendingUser from '../models/PendingUser.js';
+import PendingUser from '../models/PendingUser.js';
 import { generateToken, verifyToken } from '../lib/jwt.js';
 import { getGoogleAuthURL, getGoogleUserInfo } from '../lib/googleAuth.js';
 

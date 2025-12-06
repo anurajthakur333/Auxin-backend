@@ -11,6 +11,7 @@ import connectDB from './lib/mongodb.js';
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import emailVerificationRoutes from './routes/emailVerification.js';
+import paypalRoutes from './routes/paypal.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -182,24 +183,20 @@ app.use(generalLimiter);
 connectDB();
 
 // Routes
-console.log('📌 Registering routes...');
 app.use('/api/auth', authLimiter, authRoutes);
-console.log('✅ Registered /api/auth routes');
 app.use('/api/appointments', appointmentRoutes);
-console.log('✅ Registered /api/appointments routes');
+app.use('/api/paypal', paypalRoutes);
 
 // Email verification endpoints (mount under both to support clients using either prefix)
 app.use('/auth', emailVerificationRoutes);
-console.log('✅ Registered /auth email verification routes');
 app.use('/api/auth', emailVerificationRoutes);
-console.log('✅ Registered /api/auth email verification routes');
 
 // Add direct auth routes (without /api prefix) for OAuth/login/register
 app.use('/auth', authLimiter, authRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'OK', version: '1.0.1', timestamp: new Date().toISOString() });
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Error handling middleware
