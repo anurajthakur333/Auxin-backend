@@ -9,20 +9,29 @@ const router = Router();
 
 // Get transporter with lazy evaluation (loads env vars at runtime)
 const getTransporter = () => {
+  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+  // Use port 465 (SSL) by default for better cloud compatibility
+  const port = Number(process.env.SMTP_PORT || 465);
+  const secure = port === 465; // true for 465, false for other ports
+  
   console.log('🔍 SMTP Environment Variables Check:');
-  console.log('   SMTP_HOST:', process.env.SMTP_HOST || 'NOT SET');
-  console.log('   SMTP_PORT:', process.env.SMTP_PORT || 'NOT SET');
+  console.log('   SMTP_HOST:', host);
+  console.log('   SMTP_PORT:', port);
+  console.log('   SMTP_SECURE:', secure);
   console.log('   SMTP_USER:', process.env.SMTP_USER ? 'SET (' + process.env.SMTP_USER.substring(0, 20) + '...)' : 'NOT SET');
   console.log('   SMTP_PASS:', process.env.SMTP_PASS ? 'SET' : 'NOT SET');
   
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: false, // true for 465, false for other ports
+    host,
+    port,
+    secure,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    connectionTimeout: 10000, // 10 second timeout
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
   });
 };
 
