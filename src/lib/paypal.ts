@@ -144,3 +144,4 @@ export const logPayPalConfig = (): void => {
   console.log(`   Meeting Price: ${MEETING_CURRENCY} ${MEETING_PRICE}`);
 };
 
+
