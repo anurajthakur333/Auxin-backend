@@ -1,39 +1,48 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import * as brevoSdk from '@getbrevo/brevo';
 import User from '../models/User.js';
 import PendingUser from '../models/PendingUser.js';
 import { generateToken } from '../lib/jwt.js';
 
 const router = Router();
 
-// Get transporter with lazy evaluation (loads env vars at runtime)
-const getTransporter = () => {
-  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-  // Use port 465 (SSL) by default for better cloud compatibility
-  const port = Number(process.env.SMTP_PORT || 465);
-  const secure = port === 465; // true for 465, false for other ports
-  
-  console.log('🔍 SMTP Environment Variables Check:');
-  console.log('   SMTP_HOST:', host);
-  console.log('   SMTP_PORT:', port);
-  console.log('   SMTP_SECURE:', secure);
-  console.log('   SMTP_USER:', process.env.SMTP_USER ? 'SET (' + process.env.SMTP_USER.substring(0, 20) + '...)' : 'NOT SET');
-  console.log('   SMTP_PASS:', process.env.SMTP_PASS ? 'SET' : 'NOT SET');
-  
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    connectionTimeout: 10000, // 10 second timeout
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-  });
+// Setup Brevo API client (HTTP-based, no SMTP)
+const getBrevoClient = () => {
+  const apiInstance = new brevoSdk.TransactionalEmailsApi();
+  apiInstance.setApiKey(
+    brevoSdk.TransactionalEmailsApiApiKeys.apiKey,
+    process.env.BREVO_API_KEY || ''
+  );
+  return apiInstance;
 };
+
+// Helper function to send OTP email via Brevo HTTP API
+async function sendOtpEmail(to: string, code: string, from: string): Promise<void> {
+  const apiInstance = getBrevoClient();
+  
+  const sendSmtpEmail = new brevoSdk.SendSmtpEmail();
+  sendSmtpEmail.sender = { email: from, name: 'Auxin' };
+  sendSmtpEmail.to = [{ email: to }];
+  sendSmtpEmail.subject = 'Your Auxin Verification Code';
+  sendSmtpEmail.htmlContent = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto">
+      <div style="background:#000;padding:20px;text-align:center">
+        <h1 style="color:#39FF14;margin:0">AUXIN</h1>
+      </div>
+      <div style="background:#fff;padding:30px">
+        <h2 style="color:#333;margin-top:0">Verify Your Email</h2>
+        <p style="color:#666;font-size:16px">Thank you for signing up! Please enter the following verification code to complete your registration:</p>
+        <div style="background:#f5f5f5;border:2px solid #39FF14;padding:20px;text-align:center;margin:30px 0;border-radius:8px">
+          <div style="font-size:32px;letter-spacing:12px;font-weight:bold;color:#39FF14;font-family:'Courier New',monospace">${code}</div>
+        </div>
+        <p style="color:#666;font-size:14px">This code will expire in 2 minutes.</p>
+        <p style="color:#999;font-size:12px;margin-top:30px;padding-top:20px;border-top:1px solid #eee">If you didn't create an account with Auxin, please ignore this email.</p>
+      </div>
+    </div>`;
+
+  await apiInstance.sendTransacEmail(sendSmtpEmail);
+}
 
 // POST /send-otp
 router.post('/send-otp', async (req: Request, res: Response) => {
@@ -41,12 +50,12 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     const { email } = req.body as { email: string };
     console.log('📧 Send OTP request received for:', email);
     
-    // Validate environment variables
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      console.error('❌ SMTP credentials not configured!');
+    // Validate Brevo API key
+    if (!process.env.BREVO_API_KEY) {
+      console.error('❌ BREVO_API_KEY not configured!');
       return res.status(500).json({ 
         success: false, 
-        error: 'Email service not configured. Please set SMTP_USER and SMTP_PASS environment variables.'
+        error: 'Email service not configured. Please set BREVO_API_KEY environment variable.'
       });
     }
     
@@ -89,14 +98,8 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     // 1. Go to Brevo Dashboard → Settings → Senders & IP → Add a sender
     // 2. Add and verify your email
     // 3. Set MAIL_FROM environment variable to that verified email
-    // 
-    // The SMTP login email cannot be used as "from" address
     
-    const smtpUser = process.env.SMTP_USER;
-    
-    // Use MAIL_FROM if set, otherwise try to use a verified email
-    // For now, as a temporary solution, you can use your Gmail after verifying it in Brevo
-    let from = process.env.MAIL_FROM;
+    const from = process.env.MAIL_FROM;
     
     // If MAIL_FROM not set, provide helpful error
     if (!from) {
@@ -123,56 +126,20 @@ router.post('/send-otp', async (req: Request, res: Response) => {
       });
     }
     
-    console.log('📤 Attempting to send email via SMTP...');
-    console.log('📤 SMTP Config:', {
-      host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-      port: process.env.SMTP_PORT || 587,
-      user: smtpUser ? '***configured***' : 'NOT SET',
-      from: from
+    console.log('📤 Attempting to send email via Brevo HTTP API...');
+    console.log('📤 Brevo Config:', {
+      apiKey: process.env.BREVO_API_KEY ? '***configured***' : 'NOT SET',
+      from: from,
+      to: normalizedEmail
     });
 
-    // Get transporter instance
-    const transporter = getTransporter();
-    
-    // Verify SMTP connection first
     try {
-      await transporter.verify();
-      console.log('✅ SMTP connection verified successfully');
-    } catch (verifyError: any) {
-      console.error('❌ SMTP verification failed:', verifyError);
-      throw new Error(`SMTP connection failed: ${verifyError.message}`);
-    }
-
-    try {
-      const mailResult = await transporter.sendMail({
-        from: `Auxin <${from}>`,
-        to: normalizedEmail,
-        subject: 'Your Auxin Verification Code',
-        html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto">
-                <div style="background:#000;padding:20px;text-align:center">
-                  <h1 style="color:#39FF14;margin:0">AUXIN</h1>
-                </div>
-                <div style="background:#fff;padding:30px">
-                  <h2 style="color:#333;margin-top:0">Verify Your Email</h2>
-                  <p style="color:#666;font-size:16px">Thank you for signing up! Please enter the following verification code to complete your registration:</p>
-                  <div style="background:#f5f5f5;border:2px solid #39FF14;padding:20px;text-align:center;margin:30px 0;border-radius:8px">
-                    <div style="font-size:32px;letter-spacing:12px;font-weight:bold;color:#39FF14;font-family:'Courier New',monospace">${code}</div>
-                  </div>
-                  <p style="color:#666;font-size:14px">This code will expire in 2 minutes.</p>
-                  <p style="color:#999;font-size:12px;margin-top:30px;padding-top:20px;border-top:1px solid #eee">If you didn't create an account with Auxin, please ignore this email.</p>
-                </div>
-              </div>`,
-      });
-      console.log('✅ Email sent successfully!', mailResult.messageId);
+      await sendOtpEmail(normalizedEmail, code, from);
+      console.log('✅ Email sent successfully via Brevo API!');
     } catch (mailError: any) {
-      console.error('❌ SMTP Error:', mailError);
-      console.error('❌ SMTP Error Details:', {
-        code: mailError.code,
-        command: mailError.command,
-        response: mailError.response,
-        responseCode: mailError.responseCode
-      });
-      throw mailError; // Re-throw to be caught by outer catch
+      console.error('❌ Brevo API Error:', mailError);
+      console.error('❌ Brevo Error Details:', mailError.body || mailError.message);
+      throw mailError;
     }
 
     return res.json({ success: true, message: 'Verification code sent successfully' });
@@ -315,5 +282,3 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
 });
 
 export default router;
-
-
