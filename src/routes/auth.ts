@@ -1,8 +1,49 @@
 import express from 'express';
+import crypto from 'crypto';
+import * as brevoSdk from '@getbrevo/brevo';
 import User from '../models/User.js';
 import PendingUser from '../models/PendingUser.js';
 import { generateToken, verifyToken } from '../lib/jwt.js';
 import { getGoogleAuthURL, getGoogleUserInfo } from '../lib/googleAuth.js';
+
+// Setup Brevo API client for password reset emails
+const getBrevoClient = () => {
+  const apiInstance = new brevoSdk.TransactionalEmailsApi();
+  apiInstance.setApiKey(
+    brevoSdk.TransactionalEmailsApiApiKeys.apiKey,
+    process.env.BREVO_API_KEY || ''
+  );
+  return apiInstance;
+};
+
+// Helper function to send password reset email via Brevo
+async function sendPasswordResetEmail(to: string, resetLink: string, from: string): Promise<void> {
+  const apiInstance = getBrevoClient();
+  
+  const sendSmtpEmail = new brevoSdk.SendSmtpEmail();
+  sendSmtpEmail.sender = { email: from, name: 'Auxin' };
+  sendSmtpEmail.to = [{ email: to }];
+  sendSmtpEmail.subject = 'Reset Your Auxin Password';
+  sendSmtpEmail.htmlContent = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto">
+      <div style="background:#000;padding:20px;text-align:center">
+        <h1 style="color:#39FF14;margin:0">AUXIN</h1>
+      </div>
+      <div style="background:#fff;padding:30px">
+        <h2 style="color:#333;margin-top:0">Reset Your Password</h2>
+        <p style="color:#666;font-size:16px">We received a request to reset your password. Click the button below to create a new password:</p>
+        <div style="text-align:center;margin:30px 0">
+          <a href="${resetLink}" style="background:#39FF14;color:#000;padding:15px 30px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:4px">Reset Password</a>
+        </div>
+        <p style="color:#666;font-size:14px">Or copy and paste this link into your browser:</p>
+        <p style="color:#39FF14;font-size:14px;word-break:break-all">${resetLink}</p>
+        <p style="color:#666;font-size:14px">This link will expire in 1 hour.</p>
+        <p style="color:#999;font-size:12px;margin-top:30px;padding-top:20px;border-top:1px solid #eee">If you didn't request a password reset, please ignore this email. Your password will remain unchanged.</p>
+      </div>
+    </div>`;
+
+  await apiInstance.sendTransacEmail(sendSmtpEmail);
+}
 
 const router = express.Router();
 
@@ -181,18 +222,77 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ error: 'Please enter a valid email address' });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     // Check if user exists
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const user = await User.findOne({ email: normalizedEmail });
     
     // Always return success for security (don't reveal if email exists)
-    // In production, you would send an email here
-    console.log(`📧 Password reset requested for: ${email} (User exists: ${!!user})`);
+    if (!user) {
+      console.log(`📧 Password reset requested for non-existent email: ${email}`);
+      return res.json({
+        message: 'If an account with that email exists, password reset instructions have been sent.'
+      });
+    }
+
+    // Check if user has a password (Google OAuth users can't reset password)
+    if (!user.password && user.googleId) {
+      console.log(`📧 Password reset requested for Google OAuth user: ${email}`);
+      return res.json({
+        message: 'If an account with that email exists, password reset instructions have been sent.'
+      });
+    }
+
+    // Check if there's already a valid (non-expired) reset token
+    // If so, don't send another email to prevent spam and confusion
+    if (user.passwordResetToken && user.passwordResetExpires && user.passwordResetExpires > new Date()) {
+      const remainingMinutes = Math.ceil((user.passwordResetExpires.getTime() - Date.now()) / (1000 * 60));
+      console.log(`⏳ Valid reset token already exists for ${email}, expires in ${remainingMinutes} minutes`);
+      return res.json({
+        message: 'If an account with that email exists, password reset instructions have been sent.'
+      });
+    }
+
+    // Generate new reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Save token to database
+    user.passwordResetToken = resetTokenHash;
+    user.passwordResetExpires = resetExpires;
+    await user.save();
+
+    console.log(`✅ Password reset token generated for: ${email}`);
+
+    // Create reset link
+    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.media';
+    const resetLink = `${frontendURL}/reset-password/${resetToken}`;
+
+    // Send email
+    const from = process.env.MAIL_FROM;
     
-    // TODO: Implement email sending logic here
-    // - Generate reset token
-    // - Save token to database with expiration
-    // - Send email with reset link
-    
+    if (!from) {
+      console.error('❌ MAIL_FROM environment variable not set!');
+      return res.status(500).json({ 
+        error: 'Email service not configured. Please contact support.'
+      });
+    }
+
+    try {
+      await sendPasswordResetEmail(normalizedEmail, resetLink, from);
+      console.log(`✅ Password reset email sent to: ${email}`);
+    } catch (mailError: any) {
+      console.error('❌ Failed to send password reset email:', mailError);
+      // Clear the token since email failed
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save();
+      return res.status(500).json({ 
+        error: 'Failed to send password reset email. Please try again.'
+      });
+    }
+
     res.json({
       message: 'If an account with that email exists, password reset instructions have been sent.'
     });
@@ -200,6 +300,92 @@ router.post('/forgot-password', async (req, res) => {
   } catch (error) {
     console.error('❌ Forgot password error:', error);
     res.status(500).json({ error: 'An error occurred. Please try again.' });
+  }
+});
+
+// Reset Password - Verify token and update password
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    console.log('🔐 Reset password request received');
+
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Hash the token to compare with stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with valid token
+    const user = await User.findOne({
+      passwordResetToken: tokenHash,
+      passwordResetExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      console.log('❌ Invalid or expired reset token');
+      return res.status(400).json({ 
+        error: 'Invalid or expired reset link. Please request a new password reset.'
+      });
+    }
+
+    console.log(`✅ Valid reset token for user: ${user.email}`);
+
+    // Update password
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+
+    console.log(`✅ Password reset successful for: ${user.email}`);
+
+    res.json({
+      message: 'Password reset successful. You can now login with your new password.'
+    });
+
+  } catch (error) {
+    console.error('❌ Reset password error:', error);
+    res.status(500).json({ error: 'An error occurred. Please try again.' });
+  }
+});
+
+// Verify Reset Token - Check if token is valid (for frontend validation)
+router.get('/reset-password/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    console.log('🔐 Verifying reset token');
+
+    if (!token) {
+      return res.status(400).json({ valid: false, error: 'Token is required' });
+    }
+
+    // Hash the token to compare with stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with valid token
+    const user = await User.findOne({
+      passwordResetToken: tokenHash,
+      passwordResetExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      console.log('❌ Invalid or expired reset token');
+      return res.status(400).json({ 
+        valid: false, 
+        error: 'Invalid or expired reset link. Please request a new password reset.'
+      });
+    }
+
+    console.log(`✅ Valid reset token for user: ${user.email}`);
+    res.json({ valid: true, email: user.email });
+
+  } catch (error) {
+    console.error('❌ Verify reset token error:', error);
+    res.status(500).json({ valid: false, error: 'An error occurred. Please try again.' });
   }
 });
 
