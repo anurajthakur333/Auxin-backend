@@ -265,9 +265,10 @@ router.post('/forgot-password', async (req, res) => {
 
     console.log(`✅ Password reset token generated for: ${email}`);
 
-    // Create reset link
-    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.media';
+    // Create reset link (remove trailing slash from URL to prevent double slashes)
+    const frontendURL = (process.env.FRONTEND_URL || 'https://auxin.media').replace(/\/+$/, '');
     const resetLink = `${frontendURL}/reset-password/${resetToken}`;
+    console.log(`📧 Reset link generated: ${resetLink}`);
 
     // Send email
     const from = process.env.MAIL_FROM;
