@@ -16,6 +16,10 @@ import paypalRoutes from './routes/paypal.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy for deployment behind reverse proxies (Render, Railway, etc.)
+// This ensures express-rate-limit correctly identifies users by their real IP
+app.set('trust proxy', 1);
+
 // CORS Security Configuration
 const isProduction = process.env.NODE_ENV === 'production';
 
