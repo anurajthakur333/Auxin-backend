@@ -227,19 +227,18 @@ router.post('/forgot-password', async (req, res) => {
     // Check if user exists
     const user = await User.findOne({ email: normalizedEmail });
     
-    // Always return success for security (don't reveal if email exists)
     if (!user) {
       console.log(`📧 Password reset requested for non-existent email: ${email}`);
-      return res.json({
-        message: 'If an account with that email exists, password reset instructions have been sent.'
+      return res.status(404).json({
+        error: 'No account found with this email address.'
       });
     }
 
     // Check if user has a password (Google OAuth users can't reset password)
     if (!user.password && user.googleId) {
       console.log(`📧 Password reset requested for Google OAuth user: ${email}`);
-      return res.json({
-        message: 'If an account with that email exists, password reset instructions have been sent.'
+      return res.status(400).json({
+        error: 'This account was created with Google. Please use "Continue with Google" to sign in.'
       });
     }
 
