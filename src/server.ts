@@ -21,7 +21,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const allowedOrigins = [
   // Always include the configured frontend URL
-  process.env.FRONTEND_URL || (isProduction ? 'https://auxin.media' : 'http://localhost:5173'),
+  process.env.FRONTEND_URL || (isProduction ? 'https://auxin.world' : 'http://localhost:5173'),
   // Always allow local dev origins to call the API (useful when testing prod API from local Vite)
   'http://localhost:3000',
   'http://localhost:5173',
@@ -30,7 +30,7 @@ const allowedOrigins = [
   // Additional origins from env (comma-separated)
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : []),
   // Explicitly include auxin.media for production
-  ...(isProduction ? ['https://auxin.media'] : [])
+  ...(isProduction ? ['https://auxin.world'] : [])
 ].filter(Boolean);
 
 const corsOptions: cors.CorsOptions = {

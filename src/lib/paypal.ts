@@ -123,7 +123,7 @@ export const createOrderRequestBody = (
       paypal: {
         experienceContext: {
           paymentMethodPreference: PayeePaymentMethodPreference.ImmediatePaymentRequired,
-          brandName: 'Auxin Media',
+          brandName: 'Auxin World',
           locale: 'en-US',
           landingPage: PaypalExperienceLandingPage.Login,
           userAction: PaypalExperienceUserAction.PayNow,

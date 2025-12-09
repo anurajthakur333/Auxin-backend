@@ -201,7 +201,7 @@ router.get('/google', (_req, res) => {
     res.redirect(authURL);
   } catch (error) {
     console.error('Google auth redirect error:', error);
-    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.media';
+    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
     res.redirect(`${frontendURL}/auth/google/callback?error=${encodeURIComponent('Failed to initiate Google authentication')}`);
   }
 });
@@ -265,7 +265,7 @@ router.post('/forgot-password', async (req, res) => {
     console.log(`✅ Password reset token generated for: ${email}`);
 
     // Create reset link (remove trailing slash from URL to prevent double slashes)
-    const frontendURL = (process.env.FRONTEND_URL || 'https://auxin.media').replace(/\/+$/, '');
+    const frontendURL = (process.env.FRONTEND_URL || 'https://auxin.world').replace(/\/+$/, '');
     const resetLink = `${frontendURL}/reset-password/${resetToken}`;
     console.log(`📧 Reset link generated: ${resetLink}`);
 
@@ -393,7 +393,7 @@ router.get('/reset-password/:token', async (req, res) => {
 router.get('/google/callback', async (req, res) => {
   try {
     const { code, error } = req.query;
-    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.media';
+    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
 
     if (error) {
       console.error('Google OAuth error:', error);
@@ -456,7 +456,7 @@ router.get('/google/callback', async (req, res) => {
 
   } catch (error) {
     console.error('Google callback error:', error);
-    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.media';
+    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
     res.redirect(`${frontendURL}/auth/google/callback?error=${encodeURIComponent('Authentication failed')}`);
   }
 });

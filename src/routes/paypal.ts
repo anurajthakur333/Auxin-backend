@@ -14,7 +14,7 @@ const router = express.Router();
 // Get the frontend URL for redirects
 const getFrontendUrl = (): string => {
   return process.env.FRONTEND_URL || 
-    (process.env.NODE_ENV === 'production' ? 'https://auxin.media' : 'http://localhost:5173');
+    (process.env.NODE_ENV === 'production' ? 'https://auxin.world' : 'http://localhost:5173');
 };
 
 // Create a PayPal order for an appointment
