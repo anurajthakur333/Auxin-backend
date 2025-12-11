@@ -27,54 +27,70 @@ async function sendVerificationEmail(to: string, verificationLink: string, from:
   sendSmtpEmail.subject = 'Verify Your Auxin Account';
   
   sendSmtpEmail.htmlContent = `
-    <div style="font-family:Arial,sans-serif;line-height:1.6;margin:0;padding:0;background:#000;">
-      <div style="max-width:600px;margin:0 auto;background:#000;background-image:repeating-linear-gradient(135deg,transparent,transparent 35px,rgba(50,50,50,0.3) 35px,rgba(50,50,50,0.3) 70px);padding:40px 30px;">
-        
+   <link rel="stylesheet" href="https://db.onlinewebfonts.com/c/d95bf2f30035a050142565e03d44da71?family=Aeonik">
+<div style="margin:0;
+     padding:0;
+     background:#000;
+     font-family: Aeonik;
+     max-width: 600px;">
+
+<div style="margin:0 auto;background:#000;padding:40px 30px;text-align: center;">
         <!-- Header -->
-        <h1 style="color:#39FF14;margin:0 0 20px 0;font-size:48px;font-weight:bold;font-style:italic;line-height:1.1;">
-          VERIFY<br>YOUR EMAIL
-        </h1>
+        <p style="color:#39FF14;
+        margin:0 0 20px 0;
+        font-size:60px;
+        font-weight:bold;
+        line-height:1.1;">
+        VERIFY YOUR EMAIL
+      </p>
         
         <!-- Subheading -->
-        <p style="color:#39FF14;font-size:16px;margin:0 0 30px 0;line-height:1.5;">
+        <p style="color:#ffffff;
+        font-size:16px;
+        margin:0 0 30px 0;
+        line-height:1.5;">
           Thank You For Signing Up! Please Click<br>
           The Button Below To Complete Your Registration:
         </p>
         
         <!-- Verify Button -->
         <div style="margin:30px 0;text-align:center;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#39FF14;">
             <tr>
-              <td style="padding:20px 30px;text-align:center;">
-                <a href="${verificationLink}" style="display:inline-block;background:#39FF14;color:#000;font-size:24px;font-weight:bold;text-decoration:none;padding:18px 60px;font-family:'Arial Black',Arial,sans-serif;letter-spacing:2px;border:none;">
-                  VERIFY EMAIL
+              <td style="padding:10px 10px;text-align:center;">
+                <a href="${verificationLink}" style="display:inline-block;
+                background:#39FF14;
+                color:#000;
+                font-size:20px;
+                font-weight:800;
+                text-decoration:none;padding:18px 60px;
+                border:none;">
+                  CLICK TO VERIFY
                 </a>
               </td>
             </tr>
-          </table>
+
         </div>
         
         <!-- Validity Notice -->
-        <p style="color:#39FF14;font-size:16px;margin:25px 0;text-align:center;font-weight:bold;">
+        <p style="color:#ffffff;font-size:16px;margin:25px 0;text-align:center;font-weight:bold;">
           This Link Is Valid For 24 Hours. Please Do Not Share This Link With Anyone.
         </p>
         
         <!-- Disclaimer -->
-        <p style="color:#39FF14;font-size:14px;margin:30px 0;text-align:center;line-height:1.6;">
+        <p style="color:#ffffff;font-size:15px;margin:30px 0;text-align:center;line-height:1.6;">
           If You Didn't Request This Email, Please Ignore It.<br>
           Thank You For Using Our Service!
         </p>
         
         <!-- Divider -->
-        <hr style="border:none;border-top:2px solid #39FF14;margin:30px 0;">
+        <hr style="border:none;border-top:2px solid #ffffff;margin:30px 0;">
         
         <!-- Footer -->
-        <p style="color:#fff;font-size:12px;margin:0;text-align:center;font-weight:bold;letter-spacing:1px;">
+        <p style="color:#fff;font-size:14px;margin:0;text-align:center;">
           COPYRIGHT 2024 <span style="color:#39FF14;">AUXIN MEDIA.</span> ALL RIGHTS RESERVED.
         </p>
         
-      </div>
-    </div>`;
+      </div>`;
 
   const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
   console.log('📬 Brevo Response:', JSON.stringify(response.body || response, null, 2));
