@@ -1,17 +1,41 @@
 import { OAuth2Client } from 'google-auth-library';
 
 const getGoogleConfig = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Get Google OAuth credentials
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
-  const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI?.trim();
+  
+  // Determine redirect URI based on environment
+  // For development: use localhost backend
+  // For production: use production backend URL
+  let GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI?.trim();
+  
+  // If not explicitly set, generate based on environment
+  if (!GOOGLE_REDIRECT_URI) {
+    if (isProduction) {
+      // Production: use Railway/Render backend URL
+      const backendUrl = process.env.RAILWAY_PUBLIC_DOMAIN || 
+                        process.env.RENDER_EXTERNAL_URL || 
+                        process.env.BACKEND_URL || 
+                        'https://web-production-df81.up.railway.app';
+      GOOGLE_REDIRECT_URI = `${backendUrl}/auth/google/callback`;
+    } else {
+      // Development: use localhost
+      const port = process.env.PORT || '3001';
+      GOOGLE_REDIRECT_URI = `http://localhost:${port}/auth/google/callback`;
+    }
+  }
 
   console.log('🔍 Google Config Debug:');
+  console.log('🔍 Environment:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
   console.log('🔍 GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID ? `${GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'NOT SET');
   console.log('🔍 GOOGLE_CLIENT_SECRET:', GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET');
   console.log('🔍 GOOGLE_REDIRECT_URI:', GOOGLE_REDIRECT_URI);
 
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
-    throw new Error('Missing Google OAuth environment variables');
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error('Missing Google OAuth environment variables: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required');
   }
 
   return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI };
