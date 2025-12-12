@@ -390,8 +390,14 @@ router.get('/reset-password/:token', async (req, res) => {
 });
 
 // Google OAuth - Callback (GET route for Google's redirect)
+// Handle both with and without trailing slash
 router.get('/google/callback', async (req, res) => {
   try {
+    console.log('🔍 Google callback route hit');
+    console.log('🔍 Request path:', req.path);
+    console.log('🔍 Request URL:', req.url);
+    console.log('🔍 Query params:', req.query);
+    
     const { code, error } = req.query;
     const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
 

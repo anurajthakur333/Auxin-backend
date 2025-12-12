@@ -186,6 +186,14 @@ app.use(generalLimiter);
 // Connect to MongoDB
 connectDB();
 
+// Debug middleware to log all requests (development only)
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    console.log(`🔍 ${req.method} ${req.path}`, req.query);
+    next();
+  });
+}
+
 // Routes
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/appointments', appointmentRoutes);
@@ -217,9 +225,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   }
 });
 
-// 404 handler
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+// 404 handler with better debugging
+app.use((req, res) => {
+  console.error('❌ 404 - Route not found:', req.method, req.path);
+  console.error('🔍 Query params:', req.query);
+  console.error('🔍 Headers:', req.headers);
+  res.status(404).json({ 
+    error: 'Route not found',
+    path: req.path,
+    method: req.method
+  });
 });
 
 app.listen(PORT, () => {
