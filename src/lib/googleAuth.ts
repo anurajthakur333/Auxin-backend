@@ -1,6 +1,6 @@
 import { OAuth2Client } from 'google-auth-library';
 
-const getGoogleConfig = () => {
+const getGoogleConfig = (req?: any) => {
   const isProduction = process.env.NODE_ENV === 'production';
   
   // Get Google OAuth credentials
@@ -8,19 +8,62 @@ const getGoogleConfig = () => {
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
   
   // Determine redirect URI based on environment
-  // For development: use localhost backend
-  // For production: use production backend URL
+  // IMPORTANT: This must point to the BACKEND, not the frontend!
+  // Google will redirect here with the OAuth code, then backend processes it
   let GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI?.trim();
   
-  // If not explicitly set, generate based on environment
+  // Validate that redirect URI points to backend, not frontend
+  if (GOOGLE_REDIRECT_URI) {
+    // Check if it's pointing to frontend (auxin.world) - this is wrong!
+    if (GOOGLE_REDIRECT_URI.includes('auxin.world') && !GOOGLE_REDIRECT_URI.includes('backend')) {
+      console.error('❌ ERROR: GOOGLE_REDIRECT_URI is pointing to frontend! It must point to backend.');
+      console.error('❌ Current value:', GOOGLE_REDIRECT_URI);
+      GOOGLE_REDIRECT_URI = undefined; // Force auto-detection
+    }
+  }
+  
+  // If not explicitly set or invalid, generate based on environment
   if (!GOOGLE_REDIRECT_URI) {
     if (isProduction) {
-      // Production: use Railway/Render backend URL
-      const backendUrl = process.env.RAILWAY_PUBLIC_DOMAIN || 
-                        process.env.RENDER_EXTERNAL_URL || 
-                        process.env.BACKEND_URL || 
-                        'https://web-production-df81.up.railway.app';
+      // Production: detect backend URL from request or environment variables
+      let backendUrl = '';
+      
+      // Try to get from request headers (most reliable)
+      if (req) {
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+        const host = req.headers['host'] || req.get('host');
+        if (host) {
+          backendUrl = `${protocol}://${host}`;
+          console.log('🔍 Detected backend URL from request:', backendUrl);
+        }
+      }
+      
+      // Fallback to environment variables
+      if (!backendUrl) {
+        backendUrl = process.env.RENDER_EXTERNAL_URL || 
+                    process.env.RAILWAY_PUBLIC_DOMAIN || 
+                    process.env.BACKEND_URL || 
+                    process.env.PUBLIC_URL ||
+                    '';
+        
+        // If still empty, try to construct from known patterns
+        if (!backendUrl) {
+          // Render pattern: service-name.onrender.com
+          const renderService = process.env.RENDER_SERVICE_NAME;
+          if (renderService) {
+            backendUrl = `https://${renderService}.onrender.com`;
+          }
+        }
+      }
+      
+      if (!backendUrl) {
+        throw new Error('Cannot determine backend URL in production. Please set GOOGLE_REDIRECT_URI or RENDER_EXTERNAL_URL environment variable.');
+      }
+      
+      // Ensure no trailing slash
+      backendUrl = backendUrl.replace(/\/+$/, '');
       GOOGLE_REDIRECT_URI = `${backendUrl}/auth/google/callback`;
+      console.log('🔍 Auto-generated redirect URI:', GOOGLE_REDIRECT_URI);
     } else {
       // Development: use localhost
       const port = process.env.PORT || '3001';
@@ -33,6 +76,7 @@ const getGoogleConfig = () => {
   console.log('🔍 GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID ? `${GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'NOT SET');
   console.log('🔍 GOOGLE_CLIENT_SECRET:', GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET');
   console.log('🔍 GOOGLE_REDIRECT_URI:', GOOGLE_REDIRECT_URI);
+  console.log('🔍 Redirect URI points to:', GOOGLE_REDIRECT_URI.includes('auxin.world') ? '❌ FRONTEND (WRONG!)' : '✅ BACKEND (CORRECT)');
 
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new Error('Missing Google OAuth environment variables: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required');
@@ -41,14 +85,14 @@ const getGoogleConfig = () => {
   return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI };
 };
 
-export const getOAuth2Client = () => {
-  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = getGoogleConfig();
+export const getOAuth2Client = (req?: any) => {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = getGoogleConfig(req);
   return new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 };
 
-export const getGoogleAuthURL = (): string => {
+export const getGoogleAuthURL = (req?: any): string => {
   try {
-    const oauth2Client = getOAuth2Client();
+    const oauth2Client = getOAuth2Client(req);
     const scopes = [
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile'
@@ -70,9 +114,9 @@ export const getGoogleAuthURL = (): string => {
   }
 };
 
-export const getGoogleUserInfo = async (code: string) => {
+export const getGoogleUserInfo = async (code: string, req?: any) => {
   try {
-    const oauth2Client = getOAuth2Client();
+    const oauth2Client = getOAuth2Client(req);
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 

@@ -186,21 +186,25 @@ router.post('/login', async (req, res) => {
 });
 
 // Google OAuth - Redirect to Google (NEW PATTERN)
-router.get('/google', (_req, res) => {
+router.get('/google', (req, res) => {
   try {
     console.log('🔍 Google OAuth redirect request received');
+    console.log('🔍 Request host:', req.headers.host);
+    console.log('🔍 Request protocol:', req.headers['x-forwarded-proto'] || req.protocol);
     console.log('🔍 Environment variables check:');
     console.log('🔍 GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'SET' : 'NOT SET');
     console.log('🔍 GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET');
-    console.log('🔍 GOOGLE_REDIRECT_URI:', process.env.GOOGLE_REDIRECT_URI);
+    console.log('🔍 GOOGLE_REDIRECT_URI (env):', process.env.GOOGLE_REDIRECT_URI);
+    console.log('🔍 RENDER_EXTERNAL_URL:', process.env.RENDER_EXTERNAL_URL || 'NOT SET');
     
-    const authURL = getGoogleAuthURL();
+    const authURL = getGoogleAuthURL(req);
     console.log('✅ Redirecting to Google OAuth URL');
+    console.log('🔍 Generated auth URL (first 150 chars):', authURL.substring(0, 150));
     
     // Redirect directly to Google instead of returning JSON
     res.redirect(authURL);
   } catch (error) {
-    console.error('Google auth redirect error:', error);
+    console.error('❌ Google auth redirect error:', error);
     const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
     res.redirect(`${frontendURL}/auth/google/callback?error=${encodeURIComponent('Failed to initiate Google authentication')}`);
   }
@@ -413,8 +417,8 @@ router.get('/google/callback', async (req, res) => {
 
     console.log('🔍 Processing Google OAuth callback with code');
 
-    // Get user info from Google
-    const googleUser = await getGoogleUserInfo(code as string);
+    // Get user info from Google (pass req for proper redirect URI)
+    const googleUser = await getGoogleUserInfo(code as string, req);
 
     // Check if user exists
     let user = await User.findOne({ 
