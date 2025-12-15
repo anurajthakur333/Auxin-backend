@@ -8,6 +8,8 @@ export interface IUser extends Document {
   googleId?: string;
   avatar?: string;
   isEmailVerified: boolean;
+  // Admin moderation
+  isBanned?: boolean;
   emailVerificationCode?: string;
   emailVerificationExpires?: Date;
   passwordResetToken?: string;
@@ -42,6 +44,10 @@ const UserSchema = new Schema<IUser>({
     default: ''
   },
   isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  isBanned: {
     type: Boolean,
     default: false
   },

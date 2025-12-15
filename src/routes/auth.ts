@@ -106,7 +106,56 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login
+// Admin Login - Check against environment variables
+// This route must be defined BEFORE the regular /login route to avoid conflicts
+router.post('/admin/login', async (req, res) => {
+  console.log('🔐 Admin login route hit');
+  console.log('🔐 Request body:', { email: req.body?.email, hasPassword: !!req.body?.password });
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Get admin credentials from environment variables
+    const adminEmail = process.env.ADMIN_EMAIL?.trim();
+    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+
+    if (!adminEmail || !adminPassword) {
+      console.error('❌ Admin credentials not configured in environment variables');
+      return res.status(500).json({ error: 'Admin authentication not configured' });
+    }
+
+    // Compare credentials (case-sensitive)
+    if (email.trim() === adminEmail && password === adminPassword) {
+      // Generate a simple admin token (you can use JWT here if needed)
+      const adminToken = generateToken({ 
+        email: adminEmail, 
+        isAdmin: true,
+        type: 'admin'
+      } as any);
+
+      console.log('✅ Admin login successful:', adminEmail);
+
+      return res.json({
+        success: true,
+        token: adminToken,
+        user: {
+          email: adminEmail,
+          isAdmin: true
+        }
+      });
+    } else {
+      console.log('❌ Admin login failed: Invalid credentials');
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+  } catch (error) {
+    console.error('Admin login error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -136,8 +185,15 @@ router.post('/login', async (req, res) => {
       id: user._id, 
       email: user.email, 
       hasPassword: !!user.password,
-      hasGoogleId: !!user.googleId 
+      hasGoogleId: !!user.googleId,
+      isBanned: !!(user as any).isBanned
     });
+
+    // Block login if user is banned
+    if ((user as any).isBanned) {
+      console.log('⛔ Login blocked: user is banned', normalizedEmail);
+      return res.status(403).json({ error: 'This account has been banned. Contact support for help.' });
+    }
 
     // Check if user has a password (users created via Google OAuth might not have one)
     if (!user.password) {
@@ -448,6 +504,15 @@ router.get('/google/callback', async (req, res) => {
       await user.save();
     }
 
+    // If user is banned, do not issue a token
+    if ((user as any).isBanned) {
+      console.log('⛔ Google login blocked: user is banned', user.email);
+      const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
+      return res.redirect(
+        `${frontendURL}/auth/google/callback?error=${encodeURIComponent('This account has been banned. Contact support for help.')}`
+      );
+    }
+
     // Generate token
     const token = generateToken(user);
 
@@ -545,6 +610,11 @@ router.get('/verify', async (req, res) => {
     const user = await User.findById(decoded.userId);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
+    }
+
+    // If user is banned, treat token as invalid for client sessions
+    if ((user as any).isBanned) {
+      return res.status(401).json({ error: 'User is banned' });
     }
 
     res.json({

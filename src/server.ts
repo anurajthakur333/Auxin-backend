@@ -12,6 +12,7 @@ import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import emailVerificationRoutes from './routes/emailVerification.js';
 import paypalRoutes from './routes/paypal.js';
+import usersRoutes from './routes/users.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -59,7 +60,7 @@ const corsOptions: cors.CorsOptions = {
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Origin',
     'X-Requested-With', 
@@ -198,6 +199,14 @@ if (process.env.NODE_ENV === 'development') {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/paypal', paypalRoutes);
+app.use('/api/admin/users', usersRoutes);
+
+// Debug: Log all registered routes in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('📋 Registered routes:');
+  console.log('  - /api/admin/users');
+  console.log('  - /api/admin/users/debug');
+}
 
 // Email verification endpoints (mount under both to support clients using either prefix)
 app.use('/auth', emailVerificationRoutes);
