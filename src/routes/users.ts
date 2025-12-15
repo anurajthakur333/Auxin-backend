@@ -56,10 +56,11 @@ router.get('/', verifyAdminToken, async (req, res) => {
     
     // Fetch all users from database
     // We need password field to check if it exists, but we won't send it to frontend
-    const users = await User.find({})
+    // Cast to any[] so we can safely access dynamic fields without TS errors
+    const users = (await User.find({})
       .select('-emailVerificationCode -emailVerificationExpires -passwordResetToken -passwordResetExpires')
       .sort({ createdAt: -1 }) // Newest first
-      .lean();
+      .lean()) as any[];
 
     console.log(`📊 Found ${users.length} users in database`);
     
@@ -148,11 +149,11 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid banned value' });
     }
 
-    const user = await User.findByIdAndUpdate(
+    const user = (await User.findByIdAndUpdate(
       id,
       { $set: { isBanned: banned } },
       { new: true }
-    ).lean();
+    ).lean()) as any;
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
