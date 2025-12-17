@@ -21,7 +21,20 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
   try {
     const authHeader = req.headers.authorization;
     
+    // Debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🔐 Auth check for ${req.method} ${req.path}`);
+      console.log(`   Authorization header present: ${!!authHeader}`);
+      if (authHeader) {
+        console.log(`   Header preview: ${authHeader.substring(0, 30)}...`);
+      }
+    }
+    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`❌ Missing or invalid Authorization header for ${req.path}`);
+        console.error(`   Header value: ${authHeader || 'undefined'}`);
+      }
       return res.status(401).json({ 
         error: 'Access token required',
         code: 'UNAUTHORIZED'
@@ -39,14 +52,30 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       });
     }
 
+    // Check for invalid token values (null, undefined, etc.)
+    const invalidTokens = ['null', 'undefined', 'Bearer', 'bearer'];
+    if (invalidTokens.includes(token.toLowerCase())) {
+      console.error('❌ Invalid token value received:', token);
+      console.error('   This usually means the frontend is not properly storing/retrieving the token');
+      console.error('   Check localStorage/sessionStorage for the auth token');
+      return res.status(401).json({ 
+        error: 'Invalid token value. Please log in again.',
+        code: 'INVALID_TOKEN',
+        hint: 'Token appears to be null or undefined. Please check your authentication state.'
+      });
+    }
+
     // Basic JWT format validation (should have 3 parts separated by dots)
     const tokenParts = token.split('.');
     if (tokenParts.length !== 3) {
       console.error('❌ Malformed token format. Expected 3 parts, got:', tokenParts.length);
-      console.error('Token preview:', token.substring(0, 20) + '...');
+      console.error('Token value:', token.length > 50 ? token.substring(0, 50) + '...' : token);
+      console.error('Token length:', token.length);
+      console.error('Authorization header preview:', authHeader.substring(0, 50) + '...');
       return res.status(401).json({ 
-        error: 'Invalid token format',
-        code: 'INVALID_TOKEN'
+        error: 'Invalid token format. Token must be a valid JWT with 3 parts separated by dots.',
+        code: 'INVALID_TOKEN',
+        hint: 'Please ensure you are sending a valid JWT token in the Authorization header.'
       });
     }
     
@@ -99,24 +128,41 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
     const authHeader = req.headers.authorization;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
+      const token = authHeader.substring(7).trim();
       
-      try {
-        const decoded = verifyToken(token);
-        const user = await User.findById(decoded.userId);
+      // Validate token format before attempting verification
+      // This prevents unnecessary error logging for malformed tokens
+      if (token && token.length > 0) {
+        // Check for invalid token values (null, undefined, etc.)
+        const invalidTokens = ['null', 'undefined', 'Bearer', 'bearer'];
+        const isInvalidValue = invalidTokens.includes(token.toLowerCase());
         
-        if (user) {
-          req.user = {
-            userId: user._id.toString(),
-            email: user.email,
-            name: user.name,
-            avatar: user.avatar,
-            isEmailVerified: user.isEmailVerified
-          };
+        // Basic JWT format validation (should have 3 parts separated by dots)
+        const tokenParts = token.split('.');
+        const isValidFormat = tokenParts.length === 3;
+        
+        // Only attempt verification if token looks valid
+        if (!isInvalidValue && isValidFormat) {
+          try {
+            const decoded = verifyToken(token);
+            const user = await User.findById(decoded.userId);
+            
+            if (user) {
+              req.user = {
+                userId: user._id.toString(),
+                email: user.email,
+                name: user.name,
+                avatar: user.avatar,
+                isEmailVerified: user.isEmailVerified
+              };
+            }
+          } catch (tokenError) {
+            // Silently ignore token errors for optional auth
+            // Token format was valid but verification failed (expired, invalid signature, etc.)
+            // No need to log as this is expected behavior for optional auth
+          }
         }
-      } catch (tokenError) {
-        // Ignore token errors for optional auth
-        console.log('Optional auth token invalid, continuing without user');
+        // If token is invalid format or invalid value, silently continue without auth
       }
     }
     

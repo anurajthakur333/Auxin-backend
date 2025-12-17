@@ -22,6 +22,9 @@ export interface IAppointment extends Document {
   // Payment fields
   paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
   paymentInfo?: IPaymentInfo;
+  // Google Meet fields
+  googleMeetLink?: string;
+  googleCalendarEventId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -108,7 +111,16 @@ const AppointmentSchema = new Schema<IAppointment>({
     enum: ['pending', 'completed', 'failed', 'refunded'],
     default: 'pending'
   },
-  paymentInfo: PaymentInfoSchema
+  paymentInfo: PaymentInfoSchema,
+  // Google Meet fields
+  googleMeetLink: {
+    type: String,
+    trim: true
+  },
+  googleCalendarEventId: {
+    type: String,
+    trim: true
+  }
 }, {
   timestamps: true,
   toJSON: {

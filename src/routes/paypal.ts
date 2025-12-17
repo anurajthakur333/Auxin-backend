@@ -8,6 +8,7 @@ import {
   MEETING_PRICE,
   MEETING_CURRENCY
 } from '../lib/paypal.js';
+import { createGoogleMeetEvent } from '../lib/googleCalendar.js';
 
 const router = express.Router();
 
@@ -243,80 +244,242 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
 
     // Check if already captured
     if (appointment.paymentStatus === 'completed') {
+      // Refresh to get latest Meet link
+      const refreshedAppointment = await Appointment.findById(appointmentId);
+      
       return res.json({
         success: true,
         message: 'Payment already completed',
         appointment: {
-          id: appointment._id,
-          date: appointment.date,
-          time: appointment.time,
-          status: appointment.status,
-          paymentStatus: appointment.paymentStatus
+          id: refreshedAppointment!._id,
+          date: refreshedAppointment!.date,
+          time: refreshedAppointment!.time,
+          status: refreshedAppointment!.status,
+          paymentStatus: refreshedAppointment!.paymentStatus,
+          googleMeetLink: refreshedAppointment!.googleMeetLink || null, // Explicitly include
+          createdAt: refreshedAppointment!.createdAt
         }
       });
     }
 
-    // Capture the order
     const ordersController = getOrdersController();
-    const { result: capturedOrder } = await ordersController.captureOrder({ id: orderId });
 
-    console.log(`💰 PayPal order captured: ${orderId}`, capturedOrder.status);
+    // Helper function to update appointment from PayPal order
+    const updateAppointmentFromOrder = async (order: any, appointmentToUpdate: any) => {
+      if (order.status === 'COMPLETED') {
+        // Get capture details
+        const captureDetails = order.purchaseUnits?.[0]?.payments?.captures?.[0];
 
-    if (capturedOrder.status === 'COMPLETED') {
-      // Get capture details
-      const captureDetails = capturedOrder.purchaseUnits?.[0]?.payments?.captures?.[0];
+        // Update appointment status
+        appointmentToUpdate.status = 'confirmed';
+        appointmentToUpdate.paymentStatus = 'completed';
+        appointmentToUpdate.paymentInfo = {
+          ...appointmentToUpdate.paymentInfo,
+          paypalOrderId: orderId,
+          paypalPayerId: order.payer?.payerId || '',
+          paypalTransactionId: captureDetails?.id || '',
+          amount: MEETING_PRICE,
+          currency: MEETING_CURRENCY,
+          status: 'completed',
+          paidAt: new Date()
+        };
 
-      // Update appointment status
-      appointment.status = 'confirmed';
-      appointment.paymentStatus = 'completed';
-      appointment.paymentInfo = {
-        ...appointment.paymentInfo,
-        paypalOrderId: orderId,
-        paypalPayerId: capturedOrder.payer?.payerId || '',
-        paypalTransactionId: captureDetails?.id || '',
-        amount: MEETING_PRICE,
-        currency: MEETING_CURRENCY,
-        status: 'completed',
-        paidAt: new Date()
-      };
-      await appointment.save();
-
-      console.log(`✅ Appointment ${appointmentId} confirmed after payment`);
-
-      res.json({
-        success: true,
-        message: 'Payment completed successfully',
-        appointment: {
-          id: appointment._id,
-          date: appointment.date,
-          time: appointment.time,
-          status: appointment.status,
-          paymentStatus: appointment.paymentStatus,
-          createdAt: appointment.createdAt
+        // Generate Google Meet link if not already generated
+        if (!appointmentToUpdate.googleMeetLink) {
+          try {
+            console.log('📹 Generating Google Meet link for appointment...');
+            const meetData = await createGoogleMeetEvent(appointmentToUpdate);
+            appointmentToUpdate.googleMeetLink = meetData.googleMeetLink;
+            appointmentToUpdate.googleCalendarEventId = meetData.googleCalendarEventId;
+            console.log('✅ Google Meet link generated:', meetData.googleMeetLink.substring(0, 50) + '...');
+          } catch (meetError: any) {
+            console.error('❌ Google Meet creation failed:', meetError);
+            console.error('❌ Error details:', meetError.message);
+            // Continue with payment confirmation even if Meet link fails
+            // Admin can manually generate link later
+          }
         }
-      });
-    } else {
-      // Payment not completed
-      appointment.paymentStatus = 'failed';
-      appointment.paymentInfo = {
-        ...appointment.paymentInfo!,
-        status: 'failed'
-      };
-      await appointment.save();
 
-      res.status(400).json({
-        error: 'Payment was not completed',
-        code: 'PAYMENT_NOT_COMPLETED',
-        status: capturedOrder.status
+        await appointmentToUpdate.save();
+
+        console.log(`✅ Appointment ${appointmentId} confirmed after payment`);
+        return true;
+      }
+      return false;
+    };
+
+    try {
+      // Attempt to capture the order
+      const { result: capturedOrder } = await ordersController.captureOrder({ id: orderId });
+
+      console.log(`💰 PayPal order captured: ${orderId}`, capturedOrder.status);
+
+      if (capturedOrder.status === 'COMPLETED') {
+        await updateAppointmentFromOrder(capturedOrder, appointment);
+
+        // Refresh appointment to get latest data including Google Meet link
+        const updatedAppointment = await Appointment.findById(appointmentId);
+
+        console.log('📋 Returning appointment data:', {
+          id: updatedAppointment!._id,
+          hasMeetLink: !!updatedAppointment!.googleMeetLink,
+          meetLink: updatedAppointment!.googleMeetLink?.substring(0, 50) + '...'
+        });
+
+        res.json({
+          success: true,
+          message: 'Payment completed successfully',
+          appointment: {
+            id: updatedAppointment!._id,
+            date: updatedAppointment!.date,
+            time: updatedAppointment!.time,
+            status: updatedAppointment!.status,
+            paymentStatus: updatedAppointment!.paymentStatus,
+            googleMeetLink: updatedAppointment!.googleMeetLink || null, // Explicitly include, even if null
+            createdAt: updatedAppointment!.createdAt
+          }
+        });
+      } else {
+        // Payment not completed
+        appointment.paymentStatus = 'failed';
+        appointment.paymentInfo = {
+          ...appointment.paymentInfo!,
+          status: 'failed'
+        };
+        await appointment.save();
+
+        res.status(400).json({
+          error: 'Payment was not completed',
+          code: 'PAYMENT_NOT_COMPLETED',
+          status: capturedOrder.status
+        });
+      }
+    } catch (error: any) {
+      // Handle ORDER_ALREADY_CAPTURED error
+      // Check error structure - PayPal SDK errors have result.details array
+      let errorResult = error?.result;
+      if (!errorResult && error?.body) {
+        try {
+          errorResult = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
+        } catch (e) {
+          // If body is not JSON, ignore and use result only
+        }
+      }
+      const errorDetails = errorResult?.details?.[0];
+      const isOrderAlreadyCaptured = error?.statusCode === 422 && 
+        (errorDetails?.issue === 'ORDER_ALREADY_CAPTURED' || 
+         (typeof error?.body === 'string' && error.body.includes('ORDER_ALREADY_CAPTURED')) ||
+         error?.message?.includes('ORDER_ALREADY_CAPTURED'));
+      
+      if (isOrderAlreadyCaptured) {
+        console.log(`ℹ️ Order ${orderId} already captured, fetching order details...`);
+        
+        try {
+          // Fetch the order details to get the current status
+          const { result: orderDetails } = await ordersController.getOrder({ id: orderId });
+          
+          // Re-fetch appointment from database in case it was updated by another request
+          const refreshedAppointment = await Appointment.findById(appointmentId);
+          
+          // Use the refreshed appointment if available, otherwise use the original
+          const appointmentToUpdate = refreshedAppointment || appointment;
+          
+          // Check again if already completed (race condition check)
+          if (appointmentToUpdate.paymentStatus === 'completed') {
+            console.log(`✅ Order ${orderId} was already captured, appointment already completed`);
+            // Refresh to get latest Meet link
+            const refreshedForResponse = await Appointment.findById(appointmentId);
+            
+            return res.json({
+              success: true,
+              message: 'Payment already completed',
+              appointment: {
+                id: refreshedForResponse!._id,
+                date: refreshedForResponse!.date,
+                time: refreshedForResponse!.time,
+                status: refreshedForResponse!.status,
+                paymentStatus: refreshedForResponse!.paymentStatus,
+                googleMeetLink: refreshedForResponse!.googleMeetLink || null, // Explicitly include
+                createdAt: refreshedForResponse!.createdAt
+              }
+            });
+          }
+
+          // Update appointment from order details if not already updated
+          const updated = await updateAppointmentFromOrder(orderDetails, appointmentToUpdate);
+          
+          if (updated) {
+            console.log(`✅ Appointment ${appointmentId} confirmed after payment (order was already captured)`);
+            
+            // Refresh appointment to get latest data including Google Meet link
+            const refreshedAppointment = await Appointment.findById(appointmentId);
+            
+            console.log('📋 Returning appointment data (already captured):', {
+              id: refreshedAppointment!._id,
+              hasMeetLink: !!refreshedAppointment!.googleMeetLink,
+              meetLink: refreshedAppointment!.googleMeetLink?.substring(0, 50) + '...'
+            });
+            
+            return res.json({
+              success: true,
+              message: 'Payment was already completed',
+              appointment: {
+                id: refreshedAppointment!._id,
+                date: refreshedAppointment!.date,
+                time: refreshedAppointment!.time,
+                status: refreshedAppointment!.status,
+                paymentStatus: refreshedAppointment!.paymentStatus,
+                googleMeetLink: refreshedAppointment!.googleMeetLink || null, // Explicitly include
+                createdAt: refreshedAppointment!.createdAt
+              }
+            });
+          } else {
+            // Order exists but not completed
+            console.warn(`⚠️ Order ${orderId} exists but status is not COMPLETED: ${orderDetails?.status}`);
+            return res.status(400).json({
+              error: 'Order exists but payment was not completed',
+              code: 'PAYMENT_NOT_COMPLETED',
+              orderStatus: orderDetails?.status
+            });
+          }
+        } catch (fetchError: any) {
+          console.error('❌ Error fetching order details:', fetchError);
+          // If we can't fetch order details, check if appointment is already completed
+          const fallbackAppointment = await Appointment.findById(appointmentId);
+          if (fallbackAppointment && fallbackAppointment.paymentStatus === 'completed') {
+            console.log(`✅ Appointment ${appointmentId} is already completed (fallback check)`);
+            return res.json({
+              success: true,
+              message: 'Payment already completed',
+              appointment: {
+                id: fallbackAppointment._id,
+                date: fallbackAppointment.date,
+                time: fallbackAppointment.time,
+                status: fallbackAppointment.status,
+                paymentStatus: fallbackAppointment.paymentStatus,
+                googleMeetLink: fallbackAppointment.googleMeetLink || null, // Explicitly include
+                createdAt: fallbackAppointment.createdAt
+              }
+            });
+          }
+          // Fall through to general error handling if we can't verify
+        }
+      }
+
+      // General error handling
+      console.error('❌ Error capturing PayPal order:', error);
+      const errorMessage = error?.result?.message || error?.message || 'Failed to capture payment';
+      res.status(error?.statusCode || 500).json({
+        error: errorMessage,
+        code: 'CAPTURE_ERROR',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
       });
     }
-
   } catch (error) {
-    console.error('❌ Error capturing PayPal order:', error);
+    console.error('❌ Error in capture-order endpoint:', error);
     res.status(500).json({
-      error: 'Failed to capture payment',
-      code: 'CAPTURE_ERROR',
-      details: process.env.NODE_ENV === 'development' ? (error as any).message : undefined
+      error: 'Failed to process payment capture',
+      code: 'CAPTURE_ERROR'
     });
   }
 });

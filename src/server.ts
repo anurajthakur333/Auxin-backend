@@ -138,8 +138,17 @@ app.use((req, res, next) => {
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
+    // Skip validation for empty bodies (e.g., GET requests, empty POST)
+    if (!buf || buf.length === 0) {
+      return;
+    }
+    
     try {
-      JSON.parse(buf.toString());
+      const bodyString = buf.toString();
+      // Only validate if there's actual content
+      if (bodyString.trim().length > 0) {
+        JSON.parse(bodyString);
+      }
     } catch (e) {
       // Note: We can't use res.status() here as this is raw HTTP response
       // The error will be caught by Express and handled appropriately

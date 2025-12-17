@@ -1,6 +1,7 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
+import { generateNewMeetLink } from '../lib/googleCalendar.js';
 
 const router = express.Router();
 
@@ -242,9 +243,16 @@ router.get('/my-appointments', authenticateToken, async (req, res) => {
     const totalCount = await Appointment.countDocuments(query);
 
     console.log(`📋 Fetched ${appointments.length} appointments for user ${req.user!.email}`);
+    console.log(`📋 Appointments with Meet links: ${appointments.filter(apt => apt.googleMeetLink).length}`);
+
+    // Ensure googleMeetLink is included in response (even if null)
+    const appointmentsWithMeetLinks = appointments.map(apt => ({
+      ...apt.toObject(),
+      googleMeetLink: apt.googleMeetLink || null
+    }));
 
     res.json({
-      appointments,
+      appointments: appointmentsWithMeetLinks,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -689,6 +697,162 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
     res.status(500).json({
       error: 'Failed to fetch appointments',
       code: 'FETCH_ALL_APPOINTMENTS_ERROR'
+    });
+  }
+});
+
+// Request new Google Meet link for an appointment
+router.post('/:appointmentId/request-meet-link', authenticateToken, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const userId = req.user!.userId;
+
+    if (!appointmentId) {
+      return res.status(400).json({
+        error: 'Appointment ID is required',
+        code: 'MISSING_APPOINTMENT_ID'
+      });
+    }
+
+    // Validate MongoDB ObjectId format
+    if (!/^[0-9a-fA-F]{24}$/.test(appointmentId)) {
+      return res.status(400).json({
+        error: 'Invalid appointment ID format',
+        code: 'INVALID_APPOINTMENT_ID'
+      });
+    }
+
+    // Find the appointment
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      userId: userId
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        error: 'Appointment not found or you do not have permission to access it',
+        code: 'APPOINTMENT_NOT_FOUND'
+      });
+    }
+
+    // Verify appointment is confirmed and paid
+    if (appointment.status !== 'confirmed' || appointment.paymentStatus !== 'completed') {
+      return res.status(400).json({
+        error: 'Appointment must be confirmed and paid before requesting a meeting link',
+        code: 'APPOINTMENT_NOT_CONFIRMED'
+      });
+    }
+
+    // Generate new Meet link
+    try {
+      console.log(`📹 Generating new Google Meet link for appointment ${appointmentId}`);
+      console.log(`📹 Appointment details:`, {
+        date: appointment.date,
+        time: appointment.time,
+        hasCalendarEventId: !!appointment.googleCalendarEventId,
+        calendarEventId: appointment.googleCalendarEventId
+      });
+      
+      const googleMeetLink = await generateNewMeetLink(appointment);
+
+      // Refresh appointment to get updated calendar event ID if it was created
+      const updatedAppointment = await Appointment.findById(appointmentId);
+
+      // Update appointment with new link
+      if (updatedAppointment) {
+        updatedAppointment.googleMeetLink = googleMeetLink;
+        if (updatedAppointment.googleCalendarEventId) {
+          // Preserve calendar event ID if it was updated
+          appointment.googleCalendarEventId = updatedAppointment.googleCalendarEventId;
+        }
+        await updatedAppointment.save();
+      } else {
+        appointment.googleMeetLink = googleMeetLink;
+        await appointment.save();
+      }
+
+      console.log(`✅ New Google Meet link generated for appointment ${appointmentId}`);
+
+      res.json({
+        success: true,
+        message: 'New meeting link generated successfully',
+        googleMeetLink: googleMeetLink,
+        appointment: {
+          id: appointment._id,
+          date: appointment.date,
+          time: appointment.time,
+          status: appointment.status,
+          paymentStatus: appointment.paymentStatus,
+          googleMeetLink: googleMeetLink
+        }
+      });
+    } catch (meetError: any) {
+      console.error('❌ Error generating new Meet link:', meetError);
+      console.error('❌ Error message:', meetError.message);
+      console.error('❌ Error code:', meetError.code);
+      console.error('❌ Error response:', meetError.response?.data);
+      
+      // Provide more helpful error message
+      let errorMessage = 'Failed to generate meeting link';
+      let errorDetails = meetError.message;
+      
+      if (meetError.message?.includes('Domain-Wide Delegation') || 
+          meetError.message?.includes('attendees')) {
+        errorMessage = 'Google Calendar configuration issue. Creating new event...';
+        // Try to create a completely new event as fallback
+        try {
+          console.log('🔄 Attempting fallback: creating new event...');
+          const { createGoogleMeetEvent } = await import('../lib/googleCalendar.js');
+          const meetData = await createGoogleMeetEvent(appointment);
+          
+          appointment.googleMeetLink = meetData.googleMeetLink;
+          appointment.googleCalendarEventId = meetData.googleCalendarEventId;
+          await appointment.save();
+          
+          return res.json({
+            success: true,
+            message: 'New meeting link generated successfully (fallback method)',
+            googleMeetLink: meetData.googleMeetLink,
+            appointment: {
+              id: appointment._id,
+              date: appointment.date,
+              time: appointment.time,
+              status: appointment.status,
+              paymentStatus: appointment.paymentStatus,
+              googleMeetLink: meetData.googleMeetLink
+            }
+          });
+        } catch (fallbackError: any) {
+          console.error('❌ Fallback also failed:', fallbackError);
+          errorMessage = 'Failed to generate meeting link. Please contact support.';
+          errorDetails = fallbackError.message;
+        }
+      } else if (meetError.message) {
+        errorMessage = meetError.message;
+      }
+      
+      res.status(500).json({
+        error: errorMessage,
+        code: 'MEET_LINK_GENERATION_ERROR',
+        details: process.env.NODE_ENV === 'development' ? errorDetails : undefined
+      });
+    }
+
+  } catch (error: any) {
+    console.error('❌ Error requesting new Meet link:', error);
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        error: 'Invalid appointment ID format',
+        code: 'INVALID_APPOINTMENT_ID'
+      });
+    }
+    
+    res.status(500).json({
+      error: 'Failed to request new meeting link',
+      code: 'REQUEST_MEET_LINK_ERROR',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
