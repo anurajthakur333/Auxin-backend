@@ -35,8 +35,25 @@ export const verifyToken = (token: string): JWTPayload => {
   try {
     const secretKey = getJWTSecret();
     return jwt.verify(token, secretKey) as JWTPayload;
-  } catch {
-    throw new Error('Invalid or expired token');
+  } catch (error: any) {
+    // Log the actual error for debugging
+    console.error('JWT verification error:', {
+      name: error?.name,
+      message: error?.message,
+      expiredAt: error?.expiredAt,
+    });
+    
+    // Provide more specific error messages
+    if (error?.name === 'TokenExpiredError') {
+      throw new Error('Token has expired');
+    } else if (error?.name === 'JsonWebTokenError') {
+      throw new Error(`Invalid token: ${error?.message || 'Token malformed'}`);
+    } else if (error?.name === 'NotBeforeError') {
+      throw new Error('Token not yet active');
+    }
+    
+    // Generic fallback
+    throw new Error(`Invalid or expired token: ${error?.message || 'Unknown error'}`);
   }
 };
 

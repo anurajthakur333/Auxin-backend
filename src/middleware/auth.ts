@@ -28,7 +28,27 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       });
     }
 
-    const token = authHeader.substring(7);
+    const token = authHeader.substring(7).trim();
+    
+    // Validate token format before verification
+    if (!token || token.length === 0) {
+      console.error('❌ Empty token received');
+      return res.status(401).json({ 
+        error: 'Token is empty',
+        code: 'INVALID_TOKEN'
+      });
+    }
+
+    // Basic JWT format validation (should have 3 parts separated by dots)
+    const tokenParts = token.split('.');
+    if (tokenParts.length !== 3) {
+      console.error('❌ Malformed token format. Expected 3 parts, got:', tokenParts.length);
+      console.error('Token preview:', token.substring(0, 20) + '...');
+      return res.status(401).json({ 
+        error: 'Invalid token format',
+        code: 'INVALID_TOKEN'
+      });
+    }
     
     try {
       const decoded = verifyToken(token);
@@ -52,11 +72,16 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       };
 
       next();
-    } catch (tokenError) {
+    } catch (tokenError: any) {
       console.error('Token verification failed:', tokenError);
+      
+      // Provide more specific error messages
+      const errorMessage = tokenError?.message || 'Invalid or expired token';
+      const errorCode = tokenError?.message?.includes('expired') ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
+      
       return res.status(401).json({ 
-        error: 'Invalid or expired token',
-        code: 'INVALID_TOKEN'
+        error: errorMessage,
+        code: errorCode
       });
     }
   } catch (error) {
