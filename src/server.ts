@@ -184,9 +184,6 @@ const authLimiter = rateLimit({
 // Apply general rate limiting to all requests
 app.use(generalLimiter);
 
-// Connect to MongoDB
-connectDB();
-
 // Debug middleware to log all requests (development only)
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
@@ -246,25 +243,59 @@ app.use((req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  const environment = process.env.NODE_ENV || 'development';
-  const frontendUrl = process.env.FRONTEND_URL || (isProduction ? 'NOT SET' : 'http://localhost:5173');
-  
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Frontend URL: ${frontendUrl}`);
-  console.log(`🌍 Environment: ${environment}`);
-  console.log(`🔗 Backend URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`}`);
-  
-  if (isProduction) {
-    console.log(`🔒 CORS Origins: ${allowedOrigins.join(', ')}`);
-    console.log(`🗄️  Database: Using production MongoDB connection`);
-    if (!process.env.FRONTEND_URL) {
-      console.warn(`⚠️  WARNING: FRONTEND_URL not set in production!`);
+// Connect to MongoDB and start server
+async function startServer() {
+  try {
+    // Connect to MongoDB first
+    console.log('🔄 Initializing MongoDB connection...');
+    await connectDB();
+    console.log('✅ MongoDB connection established');
+    
+    // Start the server only after MongoDB is connected
+    app.listen(PORT, () => {
+      const environment = process.env.NODE_ENV || 'development';
+      const frontendUrl = process.env.FRONTEND_URL || (isProduction ? 'NOT SET' : 'http://localhost:5173');
+      
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📱 Frontend URL: ${frontendUrl}`);
+      console.log(`🌍 Environment: ${environment}`);
+      console.log(`🔗 Backend URL: ${process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`}`);
+      
+      if (isProduction) {
+        console.log(`🔒 CORS Origins: ${allowedOrigins.join(', ')}`);
+        console.log(`🗄️  Database: Using production MongoDB connection`);
+        if (!process.env.FRONTEND_URL) {
+          console.warn(`⚠️  WARNING: FRONTEND_URL not set in production!`);
+        }
+      } else {
+        console.log(`🔓 Development mode - allowing localhost origins`);
+        console.log(`🗄️  Database: Using development MongoDB connection`);
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Failed to start server:', error);
+    console.error('❌ Error details:', error.message);
+    
+    // Provide helpful error messages
+    if (error.message.includes('ECONNREFUSED')) {
+      console.error('\n💡 MongoDB connection refused. This usually means:');
+      console.error('   1. MongoDB is not running locally');
+      console.error('   2. Check if MongoDB service is started: brew services start mongodb-community (macOS)');
+      console.error('   3. Or use MongoDB Atlas cloud database');
+      console.error('   4. Verify MONGODB_URI environment variable is set correctly');
+    } else if (error.message.includes('Missing MongoDB connection string')) {
+      console.error('\n💡 Please set one of these environment variables:');
+      console.error('   - MONGODB_URI');
+      console.error('   - MONGODB_URI_PROD');
+      console.error('   - DATABASE_URL');
+      console.error('   - MONGO_URI');
     }
-  } else {
-    console.log(`🔓 Development mode - allowing localhost origins`);
-    console.log(`🗄️  Database: Using development MongoDB connection`);
+    
+    process.exit(1);
   }
-});
+}
+
+// Start the server
+startServer();
 
 export default app;

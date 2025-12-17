@@ -88,6 +88,12 @@ async function connectDB() {
         console.error('   1. Check your MongoDB connection string');
         console.error('   2. Ensure your IP is whitelisted in MongoDB Atlas');
         console.error('   3. Verify your internet connection');
+      } else if (error.message.includes('ECONNREFUSED') || error.message.includes('connect ECONNREFUSED')) {
+        console.error('💡 Connection refused. This usually means:');
+        console.error('   1. MongoDB is not running locally');
+        console.error('   2. Start MongoDB: brew services start mongodb-community (macOS)');
+        console.error('   3. Or use MongoDB Atlas cloud database');
+        console.error('   4. Verify MONGODB_URI points to a running MongoDB instance');
       } else if (error.message.includes('authentication failed')) {
         console.error('💡 Authentication failed - check your username/password');
       } else if (error.message.includes('timeout')) {

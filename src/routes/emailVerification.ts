@@ -154,7 +154,9 @@ router.post(['/send-otp', '/send-verification'], async (req: Request, res: Respo
     }
     
     // Build verification link - points to BACKEND which then redirects to frontend
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    // Prefer explicit BACKEND_URL, otherwise derive from the incoming request
+    const derivedBackendUrl = `${req.protocol}://${req.get('host')}`;
+    const backendUrl = process.env.BACKEND_URL || derivedBackendUrl;
     const verificationLink = `${backendUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
     
     console.log('🔗 Verification link:', verificationLink);

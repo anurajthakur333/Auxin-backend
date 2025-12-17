@@ -139,6 +139,135 @@ router.get('/', verifyAdminToken, async (req, res) => {
   }
 });
 
+// Export users to CSV (Admin only) - MUST be before /:id route
+router.get('/export', verifyAdminToken, async (req, res) => {
+  try {
+    console.log('📊 Admin requesting CSV export');
+    console.log('🔍 Query params:', req.query);
+
+    // Build filter query
+    const filter: any = {};
+    
+    if (req.query.nameEmailSearch) {
+      const searchTerm = String(req.query.nameEmailSearch).trim();
+      filter.$or = [
+        { name: { $regex: searchTerm, $options: 'i' } },
+        { email: { $regex: searchTerm, $options: 'i' } }
+      ];
+    }
+
+    if (req.query.emailVerified && req.query.emailVerified !== 'all') {
+      filter.isEmailVerified = req.query.emailVerified === 'true';
+    }
+
+    if (req.query.status && req.query.status !== 'all') {
+      if (req.query.status === 'banned') {
+        filter.isBanned = true;
+      } else if (req.query.status === 'active') {
+        filter.isBanned = false;
+        filter.isEmailVerified = true;
+      } else if (req.query.status === 'inactive') {
+        filter.isBanned = false;
+        filter.isEmailVerified = false;
+      }
+    }
+
+    if (req.query.joinedDateStart || req.query.joinedDateEnd) {
+      filter.createdAt = {};
+      if (req.query.joinedDateStart) {
+        filter.createdAt.$gte = new Date(String(req.query.joinedDateStart));
+      }
+      if (req.query.joinedDateEnd) {
+        const endDate = new Date(String(req.query.joinedDateEnd));
+        endDate.setHours(23, 59, 59, 999); // End of day
+        filter.createdAt.$lte = endDate;
+      }
+    }
+
+    // Fetch users with filters
+    const users = (await User.find(filter)
+      .select('-emailVerificationCode -emailVerificationExpires -passwordResetToken -passwordResetExpires')
+      .sort({ createdAt: -1 })
+      .lean()) as any[];
+
+    console.log(`📊 Found ${users.length} users matching filters`);
+
+    // Get appointment counts for all users
+    const userIds = users.map((user: any) => user._id?.toString() || user.id);
+    const appointmentCounts = await Appointment.aggregate([
+      { $match: { userId: { $in: userIds } } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } }
+    ]);
+
+    const appointmentMap = new Map(
+      appointmentCounts.map((item: any) => [item._id.toString(), item.count])
+    );
+
+    // Generate CSV content
+    const csvHeaders = ['Name', 'Email', 'Status', 'Projects', 'Joined At', 'Email Verified', 'Password'];
+    
+    const csvRows = users.map((user: any) => {
+      const userId = user._id?.toString() || user.id;
+      const projects = appointmentMap.get(userId) || 0;
+      
+      const isEmailVerified = user.isEmailVerified === true || 
+                             user.isEmailVerified === 'true' || 
+                             user.isEmailVerified === 1 || 
+                             String(user.isEmailVerified).toLowerCase() === 'true';
+      const isBanned = !!user.isBanned;
+      const status = isBanned ? 'BANNED' : (isEmailVerified ? 'ACTIVE' : 'INACTIVE');
+      
+      const joinDate = user.createdAt 
+        ? new Date(user.createdAt).toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        : 'N/A';
+
+      return [
+        user.name || 'N/A',
+        user.email || '',
+        status,
+        projects.toString(),
+        joinDate,
+        isEmailVerified ? 'TRUE' : 'FALSE',
+        user.password || 'NONE'
+      ];
+    });
+
+    // Escape CSV values (handle commas, quotes, newlines)
+    const escapeCsvValue = (value: string): string => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+
+    const csvContent = [
+      csvHeaders.join(','),
+      ...csvRows.map(row => row.map(cell => escapeCsvValue(String(cell))).join(','))
+    ].join('\n');
+
+    // Set response headers for CSV download
+    const filename = `users_export_${new Date().toISOString().split('T')[0]}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    console.log(`✅ CSV export completed: ${users.length} users`);
+    res.send(csvContent);
+  } catch (error: any) {
+    console.error('❌ Error exporting CSV:', error);
+    console.error('❌ Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to export CSV',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // Toggle ban status for a user (Admin only)
 router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
   try {
@@ -189,4 +318,39 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
   }
 });
 
+// Delete a user (Admin only)
+router.delete('/:id', verifyAdminToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🗑️ Admin attempting to delete user: ${id}`);
+
+    // Check if user exists
+    const user = await User.findById(id);
+    if (!user) {
+      console.log(`❌ User not found: ${id}`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Delete associated appointments first
+    const deletedAppointments = await Appointment.deleteMany({ userId: id });
+    console.log(`📅 Deleted ${deletedAppointments.deletedCount} appointments for user ${id}`);
+
+    // Delete the user
+    await User.findByIdAndDelete(id);
+    console.log(`✅ Successfully deleted user: ${id} (${user.email})`);
+
+    res.json({ message: 'User deleted successfully' });
+  } catch (error: any) {
+    console.error('❌ Error deleting user:', error);
+    console.error('❌ Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to delete user',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 export default router;
+
+
+
