@@ -26,8 +26,12 @@ router.get('/available', optionalAuth, async (req, res) => {
       });
     }
 
-    // Check if date is not in the past
-    const requestedDate = new Date(date);
+    // Parse date as local date (not UTC) to avoid timezone shifts
+    // When date is "YYYY-MM-DD", parse it as local midnight, not UTC
+    const [year, month, day] = date.split('-').map(Number);
+    const requestedDate = new Date(year, month - 1, day);
+    requestedDate.setHours(0, 0, 0, 0);
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -41,13 +45,62 @@ router.get('/available', optionalAuth, async (req, res) => {
     // Generate all possible time slots
     const allSlots = (Appointment as any).generateTimeSlots();
 
-    // Find booked appointments for this date
-    const bookedAppointments = await Appointment.find({
-      date: requestedDate,
-      status: { $in: ['confirmed', 'pending'] }
-    }).select('time');
+    // Query appointments for the entire day (handle timezone correctly)
+    // Create date range: start of day to end of day
+    // Since requestedDate is already at local midnight, we need to find all dates
+    // that fall within this calendar day when converted back to local time
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
-    const bookedTimes = new Set(bookedAppointments.map(apt => apt.time));
+    // Find booked appointments for this date (using date range to handle timezone)
+    const bookedAppointments = await Appointment.find({
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      },
+      status: { $in: ['confirmed', 'pending'] }
+    }).select('time duration bookedSlots endTime status createdAt date').lean();
+
+    console.log(`📅 Querying appointments for date: ${date}`);
+    console.log(`   Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    console.log(`   Found ${bookedAppointments.length} appointments`);
+
+    // Create a set of all booked time slots
+    const bookedTimes = new Set<string>();
+    
+    bookedAppointments.forEach((apt: any) => {
+      // Exclude pending appointments older than 15 minutes
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      if (apt.status === 'pending' && apt.createdAt && new Date(apt.createdAt) < fifteenMinutesAgo) {
+        return; // Skip old pending appointments
+      }
+      
+      // If appointment has bookedSlots array, use that (most accurate)
+      if (apt.bookedSlots && Array.isArray(apt.bookedSlots) && apt.bookedSlots.length > 0) {
+        apt.bookedSlots.forEach((slot: string) => bookedTimes.add(slot));
+      } 
+      // Otherwise, calculate slots based on duration
+      else if (apt.duration) {
+        const requiredSlots = Math.ceil(apt.duration / 30);
+        const startSlotIndex = allSlots.findIndex((s: any) => s.time === apt.time);
+        if (startSlotIndex !== -1) {
+          for (let i = 0; i < requiredSlots && startSlotIndex + i < allSlots.length; i++) {
+            bookedTimes.add(allSlots[startSlotIndex + i].time);
+          }
+        }
+      } 
+      // Fallback: just mark the start time (30-minute default)
+      else {
+        bookedTimes.add(apt.time);
+        // Also mark the next 30-minute slot for default 30-min appointments
+        const nextSlotIndex = allSlots.findIndex((s: any) => s.time === apt.time) + 1;
+        if (nextSlotIndex < allSlots.length) {
+          bookedTimes.add(allSlots[nextSlotIndex].time);
+        }
+      }
+    });
 
     // Mark slots as unavailable if they're booked
     const availableSlots = allSlots.map((slot: any) => ({

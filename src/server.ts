@@ -13,6 +13,7 @@ import appointmentRoutes from './routes/appointments.js';
 import emailVerificationRoutes from './routes/emailVerification.js';
 import paypalRoutes from './routes/paypal.js';
 import usersRoutes from './routes/users.js';
+import meetingDurationsRoutes from './routes/meetingDurations.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -206,12 +207,19 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/paypal', paypalRoutes);
 app.use('/api/admin/users', usersRoutes);
+// Public endpoint for meeting durations (must be before admin routes to avoid conflicts)
+app.use('/api/meeting-durations', meetingDurationsRoutes);
+app.use('/api/admin/meeting-durations', meetingDurationsRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
   console.log('📋 Registered routes:');
   console.log('  - /api/admin/users');
   console.log('  - /api/admin/users/debug');
+  console.log('  - /api/meeting-durations/public (public - no auth)');
+  console.log('  - /api/meeting-durations/health (public - no auth)');
+  console.log('  - /api/admin/meeting-durations (admin only)');
+  console.log('  - /api/admin/meeting-durations/:id (admin only)');
 }
 
 // Email verification endpoints (mount under both to support clients using either prefix)

@@ -29,8 +29,16 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    const { date, time, userEmail, userName, timezone } = req.body;
+    const { date, time, userEmail, userName, timezone, duration, price, slots } = req.body;
     const userId = req.user!.userId;
+    
+    // Use provided price or fallback to default
+    const meetingPrice = price ? String(price) : MEETING_PRICE;
+    
+    // Calculate slots to check if not provided
+    const slotsToCheck = slots && Array.isArray(slots) && slots.length > 0 
+      ? slots 
+      : [time]; // Fallback to just the start time if slots not provided
 
     // Validation
     if (!date || !time || !userEmail || !userName) {
@@ -70,8 +78,12 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if date is not in the past
-    const appointmentDate = new Date(date);
+    // Parse date as local date (not UTC) to avoid timezone shifts
+    // When date is "YYYY-MM-DD", parse it as local midnight, not UTC
+    const [year, month, day] = date.split('-').map(Number);
+    const appointmentDate = new Date(year, month - 1, day);
+    appointmentDate.setHours(0, 0, 0, 0);
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -90,32 +102,52 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if time slot is available (exclude pending appointments older than 15 minutes)
+    // Check if all required time slots are available (exclude pending appointments older than 15 minutes)
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-    const existingAppointment = await Appointment.findOne({
-      date: appointmentDate,
-      time: time,
-      $or: [
-        { status: 'confirmed' },
-        { 
-          status: 'pending', 
-          paymentStatus: 'pending',
-          createdAt: { $gt: fifteenMinutesAgo }
-        }
-      ]
-    });
+    
+    // Query appointments for the entire day (handle timezone correctly)
+    // Create date range: start of day to end of day
+    // Since appointmentDate is already at local midnight, we need to find all dates
+    // that fall within this calendar day when converted back to local time
+    const startOfDay = new Date(appointmentDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(appointmentDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
-    if (existingAppointment) {
-      return res.status(409).json({
-        error: 'Time slot not available',
-        code: 'SLOT_UNAVAILABLE'
+    // Check each slot that needs to be booked
+    for (const slotTime of slotsToCheck) {
+      const existingAppointment = await Appointment.findOne({
+        date: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        },
+        time: slotTime,
+        $or: [
+          { status: 'confirmed' },
+          { 
+            status: 'pending', 
+            paymentStatus: 'pending',
+            createdAt: { $gt: fifteenMinutesAgo }
+          }
+        ]
       });
+
+      if (existingAppointment) {
+        return res.status(409).json({
+          error: `Time slot ${slotTime} is not available`,
+          code: 'SLOT_UNAVAILABLE',
+          conflictingSlot: slotTime
+        });
+      }
     }
 
     // Check if user already has a confirmed appointment on this date
     const userExistingAppointment = await Appointment.findOne({
       userId: userId,
-      date: appointmentDate,
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      },
       status: 'confirmed'
     });
 
@@ -137,15 +169,31 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       status: 'pending',
       paymentStatus: 'pending',
       paymentInfo: {
-        amount: MEETING_PRICE,
+        amount: meetingPrice,
         currency: MEETING_CURRENCY,
         status: 'pending'
       }
     });
+    
+    // Store duration, end time, and booked slots
+    if (duration) {
+      appointment.duration = duration;
+    }
+    
+    if (req.body.endTime) {
+      appointment.endTime = req.body.endTime;
+    }
+    
+    // Store all booked slots for reference
+    appointment.bookedSlots = slotsToCheck;
 
     await appointment.save();
 
-    console.log(`📝 Created pending appointment: ${appointment._id} for ${userName} on ${date} at ${time}`);
+    console.log(`📝 Created pending appointment: ${appointment._id} for ${userName}`);
+    console.log(`   📅 Requested date: ${date} (parsed as: ${appointmentDate.toISOString()})`);
+    console.log(`   ⏰ Time: ${time}, Duration: ${duration} minutes`);
+    console.log(`   🎫 Booked slots: ${slotsToCheck.join(', ')}`);
+    console.log(`   💾 Stored date in DB: ${appointment.date.toISOString()}`);
 
     // Create PayPal order
     const frontendUrl = getFrontendUrl();
@@ -155,9 +203,17 @@ router.post('/create-order', authenticateToken, async (req, res) => {
     const ordersController = getOrdersController();
     const orderRequest = createOrderRequestBody(
       appointment._id.toString(),
-      { date, time, userName, userEmail },
+      { 
+        date, 
+        time, 
+        userName, 
+        userEmail,
+        duration: duration || undefined,
+        label: duration ? `${duration} minutes` : undefined
+      },
       returnUrl,
-      cancelUrl
+      cancelUrl,
+      meetingPrice
     );
 
     const { result: order } = await ordersController.createOrder({ body: orderRequest });
@@ -166,7 +222,7 @@ router.post('/create-order', authenticateToken, async (req, res) => {
     appointment.paymentInfo = {
       ...appointment.paymentInfo,
       paypalOrderId: order.id,
-      amount: MEETING_PRICE,
+      amount: meetingPrice,
       currency: MEETING_CURRENCY,
       status: 'pending'
     };

@@ -85,35 +85,42 @@ export const createOrderRequestBody = (
     time: string;
     userName: string;
     userEmail: string;
+    duration?: number;
+    label?: string;
   },
   returnUrl: string,
-  cancelUrl: string
+  cancelUrl: string,
+  price: string = MEETING_PRICE
 ): OrderRequest => {
+  const durationText = appointmentDetails.duration 
+    ? `${appointmentDetails.label || `${appointmentDetails.duration} minutes`} meeting`
+    : 'Meeting';
+  
   return {
     intent: CheckoutPaymentIntent.Capture,
     purchaseUnits: [
       {
         referenceId: appointmentId,
-        description: `Meeting Booking - ${appointmentDetails.date} at ${appointmentDetails.time}`,
+        description: `${durationText} - ${appointmentDetails.date} at ${appointmentDetails.time}`,
         customId: appointmentId,
         amount: {
           currencyCode: MEETING_CURRENCY,
-          value: MEETING_PRICE,
+          value: price,
           breakdown: {
             itemTotal: {
               currencyCode: MEETING_CURRENCY,
-              value: MEETING_PRICE,
+              value: price,
             },
           },
         },
         items: [
           {
-            name: 'Meeting Booking',
+            name: durationText,
             description: `Meeting with ${appointmentDetails.userName} on ${appointmentDetails.date} at ${appointmentDetails.time}`,
             quantity: '1',
             unitAmount: {
               currencyCode: MEETING_CURRENCY,
-              value: MEETING_PRICE,
+              value: price,
             },
           },
         ],

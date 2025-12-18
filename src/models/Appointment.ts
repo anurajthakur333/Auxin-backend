@@ -25,6 +25,10 @@ export interface IAppointment extends Document {
   // Google Meet fields
   googleMeetLink?: string;
   googleCalendarEventId?: string;
+  // Duration and slot booking fields
+  duration?: number;
+  endTime?: string;
+  bookedSlots?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -120,6 +124,19 @@ const AppointmentSchema = new Schema<IAppointment>({
   googleCalendarEventId: {
     type: String,
     trim: true
+  },
+  // Duration and slot booking fields
+  duration: {
+    type: Number,
+    min: 30
+  },
+  endTime: {
+    type: String,
+    trim: true
+  },
+  bookedSlots: {
+    type: [String],
+    default: []
   }
 }, {
   timestamps: true,
