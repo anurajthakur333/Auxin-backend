@@ -14,6 +14,8 @@ import emailVerificationRoutes from './routes/emailVerification.js';
 import paypalRoutes from './routes/paypal.js';
 import usersRoutes from './routes/users.js';
 import meetingDurationsRoutes from './routes/meetingDurations.js';
+import articlesRoutes from './routes/articles.js';
+import categoriesRoutes from './routes/categories.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -210,6 +212,12 @@ app.use('/api/admin/users', usersRoutes);
 // Public endpoint for meeting durations (must be before admin routes to avoid conflicts)
 app.use('/api/meeting-durations', meetingDurationsRoutes);
 app.use('/api/admin/meeting-durations', meetingDurationsRoutes);
+// Articles routes - public and admin
+app.use('/api/articles', articlesRoutes);
+app.use('/api/admin/articles', articlesRoutes);
+// Categories routes - public and admin
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/admin/categories', categoriesRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
@@ -220,6 +228,13 @@ if (process.env.NODE_ENV === 'development') {
   console.log('  - /api/meeting-durations/health (public - no auth)');
   console.log('  - /api/admin/meeting-durations (admin only)');
   console.log('  - /api/admin/meeting-durations/:id (admin only)');
+  console.log('  - /api/articles/public (public - no auth)');
+  console.log('  - /api/articles/public/:slug (public - no auth)');
+  console.log('  - /api/admin/articles (admin only)');
+  console.log('  - /api/admin/articles/:id (admin only)');
+  console.log('  - /api/categories/public (public - no auth)');
+  console.log('  - /api/admin/categories (admin only)');
+  console.log('  - /api/admin/categories/:id (admin only)');
 }
 
 // Email verification endpoints (mount under both to support clients using either prefix)

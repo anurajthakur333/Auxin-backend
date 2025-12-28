@@ -65,3 +65,5 @@ MeetingDurationSchema.index({ minutes: 1 });
 
 export default mongoose.models.MeetingDuration || mongoose.model<IMeetingDuration>('MeetingDuration', MeetingDurationSchema);
 
+
+
