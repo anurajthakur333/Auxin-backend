@@ -2,8 +2,48 @@ import express from 'express';
 import Appointment from '../models/Appointment.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { generateNewMeetLink } from '../lib/googleCalendar.js';
+import { verifyToken } from '../lib/jwt.js';
 
 const router = express.Router();
+
+// Admin middleware to verify admin token
+const verifyAdminToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'ADMIN AUTHENTICATION REQUIRED' });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    
+    try {
+      const decoded = verifyToken(token) as { email?: string; userId?: string };
+      
+      // Check if the email in the token matches the admin email from env
+      const adminEmail = process.env.ADMIN_EMAIL?.trim();
+      if (!adminEmail) {
+        console.error('❌ ADMIN_EMAIL not configured');
+        return res.status(500).json({ error: 'Admin configuration error' });
+      }
+      
+      // Verify the token email matches admin email
+      if (decoded.email?.trim() !== adminEmail) {
+        console.log('❌ Admin access denied - email mismatch:', decoded.email, 'vs', adminEmail);
+        return res.status(403).json({ error: 'ADMIN ACCESS REQUIRED' });
+      }
+      
+      // Attach admin info to request
+      (req as any).admin = decoded;
+      next();
+    } catch (error) {
+      console.error('Admin token verification error:', error);
+      return res.status(401).json({ error: 'INVALID OR EXPIRED ADMIN TOKEN' });
+    }
+  } catch {
+    return res.status(401).json({ error: 'INVALID TOKEN FORMAT' });
+  }
+};
 
 // Get available time slots for a specific date
 router.get('/available', optionalAuth, async (req, res) => {
@@ -703,37 +743,67 @@ router.delete('/:appointmentId', authenticateToken, async (req, res) => {
   }
 });
 
-// Admin: Get all appointments (optional - for future admin panel)
-router.get('/admin/all', authenticateToken, async (req, res) => {
+// Admin: Get all appointments
+router.get('/admin/all', verifyAdminToken, async (req, res) => {
   try {
-    // TODO: Add admin role check when you implement user roles
-    const { date, status, limit = 100, page = 1 } = req.query;
+    const { date, status, paymentStatus, search, limit = 50, page = 1 } = req.query;
 
     const query: any = {};
     
+    // Date filter
     if (date && typeof date === 'string') {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (dateRegex.test(date)) {
-        query.date = new Date(date);
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.date = { $gte: startOfDay, $lte: endOfDay };
       }
     }
     
+    // Status filter
     if (status && typeof status === 'string') {
       if (['pending', 'confirmed', 'cancelled'].includes(status)) {
         query.status = status;
       }
     }
 
+    // Payment status filter
+    if (paymentStatus && typeof paymentStatus === 'string') {
+      if (['pending', 'completed', 'failed', 'refunded'].includes(paymentStatus)) {
+        query.paymentStatus = paymentStatus;
+      }
+    }
+
+    // Search filter (name or email)
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { userName: searchRegex },
+        { userEmail: searchRegex }
+      ];
+    }
+
     const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 100));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
     const skip = (pageNum - 1) * limitNum;
 
     const appointments = await Appointment.find(query)
-      .sort({ date: 1, time: 1 })
+      .sort({ createdAt: -1 }) // Most recent first
       .skip(skip)
       .limit(limitNum);
 
     const totalCount = await Appointment.countDocuments(query);
+
+    // Get summary counts
+    const [confirmedCount, pendingCount, cancelledCount, completedPayments, pendingPayments] = await Promise.all([
+      Appointment.countDocuments({ status: 'confirmed' }),
+      Appointment.countDocuments({ status: 'pending' }),
+      Appointment.countDocuments({ status: 'cancelled' }),
+      Appointment.countDocuments({ paymentStatus: 'completed' }),
+      Appointment.countDocuments({ paymentStatus: 'pending' })
+    ]);
 
     res.json({
       appointments,
@@ -742,6 +812,13 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
         limit: limitNum,
         total: totalCount,
         pages: Math.ceil(totalCount / limitNum)
+      },
+      summary: {
+        confirmed: confirmedCount,
+        pending: pendingCount,
+        cancelled: cancelledCount,
+        paidCount: completedPayments,
+        unpaidCount: pendingPayments
       }
     });
 

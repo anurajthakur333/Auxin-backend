@@ -240,3 +240,4 @@ router.delete('/:id', verifyAdminToken, async (req, res) => {
 });
 
 export default router;
+

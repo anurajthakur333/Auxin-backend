@@ -43,3 +43,4 @@ const CategorySchema = new Schema<ICategory>({
 CategorySchema.index({ isActive: 1 });
 
 export default mongoose.models.Category || mongoose.model<ICategory>('Category', CategorySchema);
+
