@@ -29,6 +29,10 @@ export interface IAppointment extends Document {
   duration?: number;
   endTime?: string;
   bookedSlots?: string[];
+  // Meeting category and form data
+  categoryId?: string;
+  categoryName?: string;
+  formAnswers?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -137,6 +141,20 @@ const AppointmentSchema = new Schema<IAppointment>({
   bookedSlots: {
     type: [String],
     default: []
+  },
+  // Meeting category and form data
+  categoryId: {
+    type: String,
+    trim: true
+  },
+  categoryName: {
+    type: String,
+    trim: true,
+    uppercase: true
+  },
+  formAnswers: {
+    type: Schema.Types.Mixed,
+    default: {}
   }
 }, {
   timestamps: true,

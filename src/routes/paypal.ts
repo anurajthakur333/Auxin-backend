@@ -274,7 +274,7 @@ router.post('/create-order', authenticateToken, async (req, res) => {
 // Capture a PayPal order after user approves
 router.post('/capture-order', authenticateToken, async (req, res) => {
   try {
-    const { orderId, appointmentId } = req.body;
+    const { orderId, appointmentId, categoryId, categoryName, formAnswers } = req.body;
     const userId = req.user!.userId;
 
     if (!orderId || !appointmentId) {
@@ -340,6 +340,17 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
           paidAt: new Date()
         };
 
+        // Add category and form data if provided (from req.body via closure)
+        if (categoryId) {
+          appointmentToUpdate.categoryId = categoryId;
+        }
+        if (categoryName) {
+          appointmentToUpdate.categoryName = categoryName.toUpperCase().trim();
+        }
+        if (formAnswers && typeof formAnswers === 'object') {
+          appointmentToUpdate.formAnswers = formAnswers;
+        }
+
         // Generate Google Meet link if not already generated
         if (!appointmentToUpdate.googleMeetLink) {
           try {
@@ -371,6 +382,7 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
       console.log(`💰 PayPal order captured: ${orderId}`, capturedOrder.status);
 
       if (capturedOrder.status === 'COMPLETED') {
+        // Pass category data to update function via closure
         await updateAppointmentFromOrder(capturedOrder, appointment);
 
         // Refresh appointment to get latest data including Google Meet link
