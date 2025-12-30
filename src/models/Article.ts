@@ -11,6 +11,7 @@ export interface IArticle extends Document {
   author: string;
   tags: string[];
   content: string[];
+  image?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -74,6 +75,11 @@ const ArticleSchema = new Schema<IArticle>({
     trim: true,
     uppercase: true
   }],
+  image: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   isActive: {
     type: Boolean,
     default: true

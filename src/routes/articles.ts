@@ -72,6 +72,7 @@ router.get('/public', async (req, res) => {
       excerpt: a.excerpt,
       author: a.author,
       tags: a.tags,
+      image: a.image,
       isActive: a.isActive
     }));
     
@@ -113,6 +114,7 @@ router.get('/public/:slug', async (req, res) => {
         author: article.author,
         tags: article.tags,
         content: article.content,
+        image: article.image,
         isActive: article.isActive
       }
     });
@@ -147,6 +149,7 @@ router.get('/', verifyAdminToken, async (req, res) => {
         author: a.author,
         tags: a.tags,
         content: a.content,
+        image: a.image,
         isActive: a.isActive,
         createdAt: a.createdAt,
         updatedAt: a.updatedAt
@@ -163,7 +166,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
   try {
     console.log('➕ Admin creating new article');
     
-    const { slug, title, category, date, readTime, excerpt, author, tags, content, isActive } = req.body;
+    const { slug, title, category, date, readTime, excerpt, author, tags, content, image, isActive } = req.body;
     
     // Validation
     if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
@@ -213,6 +216,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
       author: author.toUpperCase().trim(),
       tags: (tags || []).map((t: string) => t.toUpperCase().trim()),
       content: content.map((c: string) => c.toUpperCase().trim()),
+      image: image?.trim() || '',
       isActive: isActive !== undefined ? isActive : true
     });
     
@@ -232,6 +236,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
         author: article.author,
         tags: article.tags,
         content: article.content,
+        image: article.image,
         isActive: article.isActive
       }
     });
@@ -254,7 +259,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
 router.put('/:id', verifyAdminToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { slug, title, category, date, readTime, excerpt, author, tags, content, isActive } = req.body;
+    const { slug, title, category, date, readTime, excerpt, author, tags, content, image, isActive } = req.body;
     
     console.log(`✏️ Admin updating article: ${id}`);
     
@@ -316,6 +321,10 @@ router.put('/:id', verifyAdminToken, async (req, res) => {
       article.content = content.map((c: string) => c.toUpperCase().trim());
     }
     
+    if (image !== undefined) {
+      article.image = image.trim();
+    }
+    
     if (isActive !== undefined) {
       article.isActive = isActive;
     }
@@ -336,6 +345,7 @@ router.put('/:id', verifyAdminToken, async (req, res) => {
         author: article.author,
         tags: article.tags,
         content: article.content,
+        image: article.image,
         isActive: article.isActive
       }
     });
