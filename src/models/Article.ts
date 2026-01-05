@@ -109,3 +109,4 @@ ArticleSchema.index({ isActive: 1, category: 1 });
 
 export default mongoose.models.Article || mongoose.model<IArticle>('Article', ArticleSchema);
 
+

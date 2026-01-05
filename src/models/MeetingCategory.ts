@@ -90,3 +90,5 @@ const MeetingCategorySchema = new Schema<IMeetingCategory>({
 MeetingCategorySchema.index({ isActive: 1 });
 
 export default mongoose.models.MeetingCategory || mongoose.model<IMeetingCategory>('MeetingCategory', MeetingCategorySchema);
+
+

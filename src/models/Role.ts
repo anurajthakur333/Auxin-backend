@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export interface ICategory extends Document {
+export interface IRole extends Document {
   _id: string;
   name: string;
   description?: string;
@@ -9,20 +9,19 @@ export interface ICategory extends Document {
   updatedAt: Date;
 }
 
-const CategorySchema = new Schema<ICategory>({
+const RoleSchema = new Schema<IRole>({
   name: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
+    unique: true,
     uppercase: true,
-    maxlength: 100
+    maxlength: 50
   },
   description: {
     type: String,
     trim: true,
-    uppercase: true,
-    maxlength: 500
+    maxlength: 200
   },
   isActive: {
     type: Boolean,
@@ -39,9 +38,9 @@ const CategorySchema = new Schema<ICategory>({
   }
 });
 
-// Index for active categories
-CategorySchema.index({ isActive: 1 });
+// Index for active roles
+RoleSchema.index({ isActive: 1 });
+RoleSchema.index({ name: 1 });
 
-export default mongoose.models.Category || mongoose.model<ICategory>('Category', CategorySchema);
-
+export default mongoose.models.Role || mongoose.model<IRole>('Role', RoleSchema);
 

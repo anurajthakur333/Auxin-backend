@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import * as brevoSdk from '@getbrevo/brevo';
 import User from '../models/User.js';
 import PendingUser from '../models/PendingUser.js';
+import Employee from '../models/Employee.js';
 import { generateToken, verifyToken } from '../lib/jwt.js';
 import { getGoogleAuthURL, getGoogleUserInfo } from '../lib/googleAuth.js';
 
@@ -629,6 +630,68 @@ router.get('/verify', async (req, res) => {
   } catch (error) {
     console.error('Token verification error:', error);
     res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// Employee login
+router.post('/employee/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Find employee with password field
+    const employee = await Employee.findOne({ email: normalizedEmail }).select('+password');
+
+    if (!employee) {
+      console.log('❌ Employee login failed: Employee not found for email:', normalizedEmail);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Check if employee is active
+    if (!employee.isActive) {
+      console.log('⛔ Employee login blocked: employee is inactive', normalizedEmail);
+      return res.status(403).json({ error: 'This account is inactive. Contact administrator.' });
+    }
+
+    // Check if employee has a password
+    if (!employee.password) {
+      return res.status(401).json({ error: 'Password not set. Contact administrator.' });
+    }
+
+    // Compare password
+    const isPasswordValid = await employee.comparePassword(password);
+    if (!isPasswordValid) {
+      console.log('❌ Employee login failed: Invalid password for email:', normalizedEmail);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Generate token for employee
+    const employeeToken = generateToken({
+      _id: employee._id,
+      email: employee.email
+    } as any);
+
+    console.log('✅ Employee login successful:', employee.email);
+
+    return res.json({
+      success: true,
+      token: employeeToken,
+      employee: {
+        _id: employee._id,
+        name: employee.name,
+        email: employee.email,
+        role: employee.role,
+        isActive: employee.isActive
+      }
+    });
+  } catch (error) {
+    console.error('Employee login error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

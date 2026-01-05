@@ -17,6 +17,8 @@ import meetingDurationsRoutes from './routes/meetingDurations.js';
 import articlesRoutes from './routes/articles.js';
 import categoriesRoutes from './routes/categories.js';
 import meetingCategoriesRoutes from './routes/meetingCategories.js';
+import employeesRoutes from './routes/employees.js';
+import rolesRoutes from './routes/roles.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -222,6 +224,11 @@ app.use('/api/admin/categories', categoriesRoutes);
 // Meeting Categories routes - public and admin
 app.use('/api/meeting-categories', meetingCategoriesRoutes);
 app.use('/api/admin/meeting-categories', meetingCategoriesRoutes);
+// Employees routes - admin only
+app.use('/api/admin/employees', employeesRoutes);
+// Roles routes - public and admin
+app.use('/api/roles', rolesRoutes);
+app.use('/api/admin/roles', rolesRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
