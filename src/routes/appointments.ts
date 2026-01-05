@@ -1,5 +1,6 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
+import Employee from '../models/Employee.js';
 import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 import { generateNewMeetLink } from '../lib/googleCalendar.js';
 import { verifyToken } from '../lib/jwt.js';
@@ -41,6 +42,64 @@ const verifyAdminToken = (req: express.Request, res: express.Response, next: exp
       return res.status(401).json({ error: 'INVALID OR EXPIRED ADMIN TOKEN' });
     }
   } catch {
+    return res.status(401).json({ error: 'INVALID TOKEN FORMAT' });
+  }
+};
+
+// Admin or Employee middleware - allows both admin and employee access
+const verifyAdminOrEmployeeToken = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'AUTHENTICATION REQUIRED' });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    
+    try {
+      const decoded = verifyToken(token) as { email?: string; userId?: string; _id?: string };
+      
+      if (!decoded.email) {
+        return res.status(401).json({ error: 'INVALID TOKEN - NO EMAIL' });
+      }
+      
+      // Check if admin first
+      const adminEmail = process.env.ADMIN_EMAIL?.trim();
+      if (adminEmail && decoded.email.trim().toLowerCase() === adminEmail.toLowerCase()) {
+        (req as any).admin = decoded;
+        (req as any).userType = 'admin';
+        console.log('✅ Admin access granted:', decoded.email);
+        return next();
+      }
+      
+      // Check if employee
+      const employee = await Employee.findOne({ 
+        email: decoded.email.trim().toLowerCase(),
+        isActive: true 
+      });
+      
+      if (employee) {
+        (req as any).employee = {
+          _id: employee._id,
+          email: employee.email,
+          name: employee.name,
+          role: employee.role
+        };
+        (req as any).userType = 'employee';
+        console.log('✅ Employee access granted:', decoded.email);
+        return next();
+      }
+      
+      // Neither admin nor employee
+      console.log('❌ Access denied - not admin or employee:', decoded.email);
+      return res.status(403).json({ error: 'ADMIN OR EMPLOYEE ACCESS REQUIRED' });
+    } catch (error) {
+      console.error('Token verification error:', error);
+      return res.status(401).json({ error: 'INVALID OR EXPIRED TOKEN' });
+    }
+  } catch (error) {
+    console.error('Middleware error:', error);
     return res.status(401).json({ error: 'INVALID TOKEN FORMAT' });
   }
 };
@@ -743,8 +802,96 @@ router.delete('/:appointmentId', authenticateToken, async (req, res) => {
   }
 });
 
-// Admin: Get all appointments
-router.get('/admin/all', verifyAdminToken, async (req, res) => {
+// Employee: Get all appointments (same as admin endpoint)
+router.get('/employee/all', verifyAdminOrEmployeeToken, async (req, res) => {
+  try {
+    const { date, status, paymentStatus, search, limit = 50, page = 1 } = req.query;
+
+    const query: any = {};
+    
+    // Date filter
+    if (date && typeof date === 'string') {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (dateRegex.test(date)) {
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+        query.date = { $gte: startOfDay, $lte: endOfDay };
+      }
+    }
+    
+    // Status filter
+    if (status && typeof status === 'string') {
+      if (['pending', 'confirmed', 'cancelled'].includes(status)) {
+        query.status = status;
+      }
+    }
+
+    // Payment status filter
+    if (paymentStatus && typeof paymentStatus === 'string') {
+      if (['pending', 'completed', 'failed', 'refunded'].includes(paymentStatus)) {
+        query.paymentStatus = paymentStatus;
+      }
+    }
+
+    // Search filter (name or email)
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { userName: searchRegex },
+        { userEmail: searchRegex }
+      ];
+    }
+
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
+    const skip = (pageNum - 1) * limitNum;
+
+    const appointments = await Appointment.find(query)
+      .sort({ createdAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(limitNum);
+
+    const totalCount = await Appointment.countDocuments(query);
+
+    // Get summary counts
+    const [confirmedCount, pendingCount, cancelledCount, completedPayments, pendingPayments] = await Promise.all([
+      Appointment.countDocuments({ status: 'confirmed' }),
+      Appointment.countDocuments({ status: 'pending' }),
+      Appointment.countDocuments({ status: 'cancelled' }),
+      Appointment.countDocuments({ paymentStatus: 'completed' }),
+      Appointment.countDocuments({ paymentStatus: 'pending' })
+    ]);
+
+    res.json({
+      appointments,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limitNum)
+      },
+      summary: {
+        confirmed: confirmedCount,
+        pending: pendingCount,
+        cancelled: cancelledCount,
+        paidCount: completedPayments,
+        unpaidCount: pendingPayments
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching employee appointments:', error);
+    res.status(500).json({
+      error: 'Failed to fetch appointments',
+      code: 'FETCH_EMPLOYEE_APPOINTMENTS_ERROR'
+    });
+  }
+});
+
+// Admin: Get all appointments (also accepts employee tokens)
+router.get('/admin/all', verifyAdminOrEmployeeToken, async (req, res) => {
   try {
     const { date, status, paymentStatus, search, limit = 50, page = 1 } = req.query;
 
