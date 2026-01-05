@@ -538,7 +538,7 @@ router.get('/google/callback', async (req, res) => {
 });
 
 // Google OAuth - Callback (POST route for fallback/legacy support)
-router.post('/google/callback', async (req, res) => {
+router.get('/google/callback', async (req, res) => {
   try {
     const { code } = req.body;
 
@@ -580,17 +580,17 @@ router.post('/google/callback', async (req, res) => {
     // Generate token
     const token = generateToken(user);
 
-    res.json({
-      message: 'Google authentication successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        isEmailVerified: user.isEmailVerified
-      }
-    });
+    const frontendURL = process.env.FRONTEND_URL || 'https://auxin.world';
+    const userData = encodeURIComponent(JSON.stringify({
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      isEmailVerified: user.isEmailVerified
+    }));
+
+    res.redirect(`${frontendURL}?token=${token}&user=${userData}`);
+
   } catch (error) {
     console.error('Google callback error:', error);
     res.status(500).json({ error: 'Google authentication failed' });
