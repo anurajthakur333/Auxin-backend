@@ -1,14 +1,34 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import crypto from 'crypto';
 
+export interface ISalaryHistory {
+  date: Date;
+  amount: number;
+  currency: string;
+  reason?: string;
+  previousAmount: number;
+}
+
 export interface IEmployee extends Document {
   _id: string;
+  employeeId: string; // 4 capital letters, unique
   name: string;
-  email: string;
+  email: string; // Login email (admin email)
+  personalEmail?: string; // Personal email
   password?: string;
   role: string;
   subrole?: string;
+  age?: number;
+  location?: string;
+  joinedDate?: Date;
+  videoProof?: string; // Cloudinary URL
+  documentProof?: string; // Cloudinary URL
+  salary?: number;
+  currency?: string; // USD, EUR, INR, etc.
+  salaryHistory?: ISalaryHistory[];
   isActive: boolean;
+  isBanned: boolean;
+  isVerified?: boolean; // Employee verification status
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -60,6 +80,15 @@ const decrypt = (encryptedText: string): string => {
 };
 
 const EmployeeSchema = new Schema<IEmployee>({
+  employeeId: {
+    type: String,
+    required: true,
+    unique: true,
+    uppercase: true,
+    trim: true,
+    match: [/^[A-Z]{4}$/, 'Employee ID must be exactly 4 capital letters'],
+    index: true
+  },
   name: {
     type: String,
     required: true,
@@ -73,6 +102,12 @@ const EmployeeSchema = new Schema<IEmployee>({
     lowercase: true,
     trim: true,
     unique: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+  },
+  personalEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   password: {
@@ -93,9 +128,75 @@ const EmployeeSchema = new Schema<IEmployee>({
     uppercase: true,
     default: ''
   },
+  age: {
+    type: Number,
+    min: 18,
+    max: 100
+  },
+  location: {
+    type: String,
+    trim: true,
+    maxlength: 200
+  },
+  joinedDate: {
+    type: Date,
+    default: Date.now
+  },
+  videoProof: {
+    type: String,
+    trim: true
+  },
+  documentProof: {
+    type: String,
+    trim: true
+  },
+  salary: {
+    type: Number,
+    min: 0
+  },
+  currency: {
+    type: String,
+    uppercase: true,
+    trim: true,
+    default: 'USD',
+    enum: ['USD', 'EUR', 'GBP', 'INR', 'CAD', 'AUD', 'JPY', 'CNY', 'SGD', 'AED', 'SAR', 'PKR', 'BDT', 'LKR', 'NPR', 'MYR', 'THB', 'PHP', 'IDR', 'VND', 'KRW', 'HKD', 'NZD', 'ZAR', 'BRL', 'MXN', 'ARS', 'CLP', 'COP', 'PEN', 'EGP', 'NGN', 'KES', 'GHS', 'ETB', 'UGX', 'TZS', 'RWF', 'MAD', 'TND', 'DZD', 'XOF', 'XAF', 'ZMW', 'BWP', 'MWK', 'MZN', 'AOA', 'CDF', 'RUB', 'TRY', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'SEK', 'NOK', 'DKK', 'ISK', 'CHF', 'ILS', 'JOD', 'KWD', 'BHD', 'OMR', 'QAR', 'BND', 'FJD', 'PGK', 'SBD', 'VUV', 'WST', 'TOP', 'TVD', 'XPF', 'NIO', 'GTQ', 'BZD', 'BBD', 'BSD', 'JMD', 'KYD', 'TTD', 'AWG', 'ANG', 'SRD', 'GYD', 'BMD', 'FKP', 'SHP', 'GIP', 'MOP', 'BTN', 'AFN', 'IRR', 'IQD', 'SYP', 'YER', 'LBP', 'AMD', 'AZN', 'GEL', 'KZT', 'KGS', 'TJS', 'TMT', 'UZS', 'MNT', 'KPW', 'MMK', 'LAK', 'KHR', 'TWD', 'HNL', 'SVC', 'PAB', 'CRC', 'PYG', 'UYU', 'BOB', 'VES']
+  },
+  salaryHistory: [{
+    date: {
+      type: Date,
+      default: Date.now
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    currency: {
+      type: String,
+      required: true,
+      uppercase: true
+    },
+    reason: {
+      type: String,
+      trim: true
+    },
+    previousAmount: {
+      type: Number,
+      required: true,
+      min: 0
+    }
+  }],
   isActive: {
     type: Boolean,
     default: true
+  },
+  isBanned: {
+    type: Boolean,
+    default: false
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true,
@@ -148,9 +249,12 @@ EmployeeSchema.methods.decryptPassword = function(): string {
 
 // Indexes
 EmployeeSchema.index({ email: 1 });
+EmployeeSchema.index({ employeeId: 1 });
 EmployeeSchema.index({ role: 1 });
 EmployeeSchema.index({ subrole: 1 });
 EmployeeSchema.index({ isActive: 1 });
+EmployeeSchema.index({ isBanned: 1 });
+EmployeeSchema.index({ joinedDate: 1 });
 
 export default mongoose.models.Employee || mongoose.model<IEmployee>('Employee', EmployeeSchema);
 
