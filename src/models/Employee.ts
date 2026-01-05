@@ -7,6 +7,7 @@ export interface IEmployee extends Document {
   email: string;
   password?: string;
   role: string;
+  subrole?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -86,6 +87,12 @@ const EmployeeSchema = new Schema<IEmployee>({
     uppercase: true,
     default: 'EMPLOYEE'
   },
+  subrole: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    default: ''
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -142,7 +149,9 @@ EmployeeSchema.methods.decryptPassword = function(): string {
 // Indexes
 EmployeeSchema.index({ email: 1 });
 EmployeeSchema.index({ role: 1 });
+EmployeeSchema.index({ subrole: 1 });
 EmployeeSchema.index({ isActive: 1 });
 
 export default mongoose.models.Employee || mongoose.model<IEmployee>('Employee', EmployeeSchema);
+
 

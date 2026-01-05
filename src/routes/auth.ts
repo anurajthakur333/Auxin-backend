@@ -686,6 +686,7 @@ router.post('/employee/login', async (req, res) => {
         name: employee.name,
         email: employee.email,
         role: employee.role,
+        subrole: employee.subrole || '',
         isActive: employee.isActive
       }
     });

@@ -69,6 +69,7 @@ router.get('/', verifyAdminToken, async (req, res) => {
           email: e.email,
           password: decryptedPassword, // Include decrypted password for admin
           role: e.role,
+          subrole: e.subrole || '',
           isActive: e.isActive,
           createdAt: e.createdAt,
           updatedAt: e.updatedAt
@@ -116,7 +117,7 @@ router.get('/:id', verifyAdminToken, async (req, res) => {
 // Create a new employee (Admin only)
 router.post('/', verifyAdminToken, async (req, res) => {
   try {
-    const { name, email, password: plainPassword, role, isActive } = req.body;
+    const { name, email, password: plainPassword, role, subrole, isActive } = req.body;
     
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Name is required' });
@@ -150,6 +151,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
       email: email.toLowerCase().trim(),
       password: plainPassword || undefined, // Will be encrypted by pre-save hook
       role: (role || 'EMPLOYEE').toUpperCase().trim(),
+      subrole: subrole ? subrole.toUpperCase().trim() : undefined,
       isActive: isActive !== undefined ? isActive : true
     });
     
@@ -181,7 +183,7 @@ router.post('/', verifyAdminToken, async (req, res) => {
 router.put('/:id', verifyAdminToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, password: plainPassword, role, isActive } = req.body;
+    const { name, email, password: plainPassword, role, subrole, isActive } = req.body;
     
     const employee = await Employee.findById(id);
     
@@ -247,6 +249,10 @@ router.put('/:id', verifyAdminToken, async (req, res) => {
       employee.role = role.toUpperCase().trim();
     }
     
+    if (subrole !== undefined) {
+      employee.subrole = subrole ? subrole.toUpperCase().trim() : '';
+    }
+    
     if (isActive !== undefined) {
       employee.isActive = isActive;
     }
@@ -296,4 +302,5 @@ router.delete('/:id', verifyAdminToken, async (req, res) => {
 });
 
 export default router;
+
 
