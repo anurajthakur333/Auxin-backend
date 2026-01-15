@@ -8,18 +8,16 @@ const getGoogleConfig = (req?: any) => {
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
   
   // Determine redirect URI based on environment
-  // IMPORTANT: This must point to the BACKEND, not the frontend!
-  // Google will redirect here with the OAuth code, then backend processes it
+  // NOTE: Redirect URI can point to either frontend or backend
+  // - If pointing to frontend: Frontend receives code and sends to backend POST endpoint
+  // - If pointing to backend: Backend processes code and redirects to frontend with token
+  // For better branding, we prefer frontend redirect URI so Google shows "continue to Auxin"
   let GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI?.trim();
   
-  // Validate that redirect URI points to backend, not frontend
-  if (GOOGLE_REDIRECT_URI) {
-    // Check if it's pointing to frontend (auxin.world) - this is wrong!
-    if (GOOGLE_REDIRECT_URI.includes('auxin.world') && !GOOGLE_REDIRECT_URI.includes('backend')) {
-      console.error('❌ ERROR: GOOGLE_REDIRECT_URI is pointing to frontend! It must point to backend.');
-      console.error('❌ Current value:', GOOGLE_REDIRECT_URI);
-      GOOGLE_REDIRECT_URI = undefined; // Force auto-detection
-    }
+  // Allow frontend redirect URI for better branding in Google consent screen
+  // Frontend will handle the code and send it to backend POST endpoint
+  if (GOOGLE_REDIRECT_URI && GOOGLE_REDIRECT_URI.includes('auxin.world')) {
+    console.log('✅ Using frontend redirect URI for better branding:', GOOGLE_REDIRECT_URI);
   }
   
   // If not explicitly set or invalid, generate based on environment
@@ -76,7 +74,7 @@ const getGoogleConfig = (req?: any) => {
   console.log('🔍 GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID ? `${GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'NOT SET');
   console.log('🔍 GOOGLE_CLIENT_SECRET:', GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET');
   console.log('🔍 GOOGLE_REDIRECT_URI:', GOOGLE_REDIRECT_URI);
-  console.log('🔍 Redirect URI points to:', GOOGLE_REDIRECT_URI.includes('auxin.world') ? '❌ FRONTEND (WRONG!)' : '✅ BACKEND (CORRECT)');
+  console.log('🔍 Redirect URI points to:', GOOGLE_REDIRECT_URI.includes('auxin.world') ? '✅ FRONTEND (for branding)' : '✅ BACKEND (current flow)');
 
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new Error('Missing Google OAuth environment variables: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required');

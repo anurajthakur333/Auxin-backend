@@ -537,8 +537,8 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
-// Google OAuth - Callback (POST route for fallback/legacy support)
-router.get('/google/callback', async (req, res) => {
+// Google OAuth - Callback (POST route for frontend code exchange)
+router.post('/google/callback', async (req, res) => {
   try {
     const { code } = req.body;
 
