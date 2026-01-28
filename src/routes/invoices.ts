@@ -149,7 +149,7 @@ router.post('/admin/invoices', verifyAdminToken, async (req, res) => {
     // Create notification for client about new invoice
     await createNotification(
       String(clientId),
-      `NEW INVOICE CREATED: ${invoice.invoiceNumber} - $${total.toFixed(2)}`,
+      `INVOICE - ${invoice.invoiceNumber}: $${total.toFixed(2)}`,
       'billing',
       String(invoice._id),
       'invoice'

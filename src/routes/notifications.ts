@@ -49,17 +49,27 @@ export const createNotification = async (
   relatedType?: string
 ) => {
   try {
+    if (!userId || !message) {
+      console.error('❌ Invalid notification parameters:', { userId, message, type });
+      return null;
+    }
+
     const notification = await Notification.create({
       userId,
-      message,
+      message: message.trim(),
       type,
       read: false,
       relatedId: relatedId ? relatedId : undefined,
       relatedType: relatedType || undefined,
     });
+    
+    console.log(`✅ Notification created: ${message} for user ${userId}`);
     return notification;
-  } catch (error) {
-    console.error('Error creating notification:', error);
+  } catch (error: any) {
+    console.error('❌ Error creating notification:', error);
+    console.error('❌ Notification details:', { userId, message, type, relatedId, relatedType });
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
     return null;
   }
 };

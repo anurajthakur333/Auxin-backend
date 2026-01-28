@@ -3,6 +3,7 @@ import Project from '../models/Project.js';
 import User from '../models/User.js';
 import Task from '../models/Task.js';
 import { verifyToken } from '../lib/jwt.js';
+import { createNotification } from './notifications.js';
 
 const router = express.Router();
 
@@ -162,6 +163,16 @@ router.post('/client/:clientId', verifyAdminToken, async (req, res) => {
     });
 
     await project.save();
+
+    // Create notification for client about new project
+    const projectCodeDisplay = normalizedCode ? `PROJECT - ${normalizedCode}` : 'NEW PROJECT';
+    await createNotification(
+      String(clientId),
+      `${projectCodeDisplay}: ${project.name}`,
+      'project',
+      String(project._id),
+      'project'
+    );
 
     const projectObj = project.toObject();
     res.status(201).json({ project: projectObj });

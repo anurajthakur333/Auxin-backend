@@ -413,7 +413,7 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
           if (updatedInvoice) {
             await createNotification(
               String(updatedInvoice.clientId),
-              `PAYMENT RECEIVED: Invoice ${updatedInvoice.invoiceNumber} has been paid`,
+              `PAYMENT RECEIVED - INVOICE ${updatedInvoice.invoiceNumber}: $${updatedInvoice.total.toFixed(2)}`,
               'billing',
               String(updatedInvoice._id),
               'invoice'
@@ -442,6 +442,14 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
         if (error?.statusCode === 422) {
           const updatedInvoice = await Invoice.findById(invoiceId);
           if (updatedInvoice && updatedInvoice.status === 'paid') {
+            // Create notification if not already created
+            await createNotification(
+              String(updatedInvoice.clientId),
+              `PAYMENT RECEIVED - INVOICE ${updatedInvoice.invoiceNumber}: $${updatedInvoice.total.toFixed(2)}`,
+              'billing',
+              String(updatedInvoice._id),
+              'invoice'
+            );
             return res.json({
               success: true,
               message: 'Payment already completed',

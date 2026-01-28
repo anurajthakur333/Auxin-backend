@@ -121,9 +121,10 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
     if (!wasDone && willBeDone) {
       const project = await Project.findById(task.projectId).lean();
       if (project && project.clientId) {
+        const projectCodeDisplay = project.projectCode ? `PROJECT - ${project.projectCode}` : 'PROJECT';
         await createNotification(
           String(project.clientId),
-          `TASK COMPLETED: ${task.title}`,
+          `${projectCodeDisplay}: TASK COMPLETED - ${task.title}`,
           'task',
           String(task._id),
           'task'
