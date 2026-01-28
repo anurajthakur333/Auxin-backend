@@ -2,6 +2,7 @@ import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Invoice, { IInvoice } from '../models/Invoice.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
 import {
   getOrdersController,
   createOrderRequestBody,
@@ -407,6 +408,17 @@ router.post('/capture-order', authenticateToken, async (req, res) => {
           });
 
           const updatedInvoice = await Invoice.findById(invoiceId);
+
+          // Create notification for invoice payment
+          if (updatedInvoice) {
+            await createNotification(
+              String(updatedInvoice.clientId),
+              `PAYMENT RECEIVED: Invoice ${updatedInvoice.invoiceNumber} has been paid`,
+              'billing',
+              String(updatedInvoice._id),
+              'invoice'
+            );
+          }
 
           return res.json({
             success: true,

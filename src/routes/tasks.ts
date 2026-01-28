@@ -2,6 +2,7 @@ import express from 'express';
 import Task from '../models/Task.js';
 import Project from '../models/Project.js';
 import { verifyToken } from '../lib/jwt.js';
+import { createNotification } from './notifications.js';
 
 const router = express.Router();
 
@@ -101,6 +102,11 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
       updateData.dueDate = new Date(updateData.dueDate);
     }
 
+    // Get the task before update to check status change
+    const oldTask = await Task.findById(taskId).lean();
+    const wasDone = oldTask?.status === 'done';
+    const willBeDone = updateData.status === 'done';
+
     const task = await Task.findByIdAndUpdate(
       taskId,
       { $set: updateData },
@@ -109,6 +115,20 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Create notification if task was just completed
+    if (!wasDone && willBeDone) {
+      const project = await Project.findById(task.projectId).lean();
+      if (project && project.clientId) {
+        await createNotification(
+          String(project.clientId),
+          `TASK COMPLETED: ${task.title}`,
+          'task',
+          String(task._id),
+          'task'
+        );
+      }
     }
 
     res.json({ task });

@@ -2,6 +2,7 @@ import express from 'express';
 import Invoice from '../models/Invoice.js';
 import User from '../models/User.js';
 import { verifyToken } from '../lib/jwt.js';
+import { createNotification } from './notifications.js';
 
 const router = express.Router();
 
@@ -144,6 +145,15 @@ router.post('/admin/invoices', verifyAdminToken, async (req, res) => {
     });
 
     await invoice.save();
+
+    // Create notification for client about new invoice
+    await createNotification(
+      String(clientId),
+      `NEW INVOICE CREATED: ${invoice.invoiceNumber} - $${total.toFixed(2)}`,
+      'billing',
+      String(invoice._id),
+      'invoice'
+    );
 
     res.status(201).json({ invoice: invoice.toJSON() });
   } catch (error: any) {
