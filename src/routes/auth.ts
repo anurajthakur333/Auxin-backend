@@ -229,7 +229,8 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
-        isEmailVerified: user.isEmailVerified
+        isEmailVerified: user.isEmailVerified,
+        clientCode: (user as any).clientCode || null
       }
     });
   } catch (error) {
@@ -525,7 +526,8 @@ router.get('/google/callback', async (req, res) => {
       email: user.email,
       name: user.name,
       avatar: user.avatar,
-      isEmailVerified: user.isEmailVerified
+      isEmailVerified: user.isEmailVerified,
+      clientCode: (user as any).clientCode || null
     }));
     
     res.redirect(`${frontendURL}/auth/google/callback?token=${token}&user=${userData}`);
@@ -588,7 +590,8 @@ router.post('/google/callback', async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
-        isEmailVerified: user.isEmailVerified
+        isEmailVerified: user.isEmailVerified,
+        clientCode: (user as any).clientCode || null
       }
     });
   } catch (error) {
@@ -618,14 +621,29 @@ router.get('/verify', async (req, res) => {
       return res.status(401).json({ error: 'User is banned' });
     }
 
+    // Debug: Log user data from database
+    const userObj = user.toObject ? user.toObject() : user;
+    console.log('🔍 Verify endpoint - User from DB:', {
+      id: user._id,
+      email: user.email,
+      clientCode: (userObj as any).clientCode,
+      clientCodeType: typeof (userObj as any).clientCode,
+      hasClientCode: (userObj as any).clientCode !== undefined && (userObj as any).clientCode !== null
+    });
+
+    const responseUser = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+      isEmailVerified: user.isEmailVerified,
+      clientCode: (userObj as any).clientCode || null
+    };
+
+    console.log('🔍 Verify endpoint - Response user:', responseUser);
+
     res.json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        isEmailVerified: user.isEmailVerified
-      }
+      user: responseUser
     });
   } catch (error) {
     console.error('Token verification error:', error);

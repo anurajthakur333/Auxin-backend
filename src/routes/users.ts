@@ -121,6 +121,7 @@ router.get('/', verifyAdminToken, async (req, res) => {
         hasPassword,
         password: hasPassword ? String(user.password) : null, // Show password for admin (plain text storage)
         isBanned,
+        clientCode: user.clientCode || null,
         joinDate: user.createdAt || new Date(),
         projects
       };
@@ -297,6 +298,9 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
     const hasPassword = !!(user.password && String(user.password).trim().length > 0);
     const isBanned = !!user.isBanned;
     
+    // Get appointment count
+    const projects = await Appointment.countDocuments({ userId: id });
+
     const responseUser = {
       id: user._id?.toString() || (user as any).id,
       name: user.name || 'N/A',
@@ -306,8 +310,9 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
       hasPassword,
       password: hasPassword ? String(user.password) : null,
       isBanned,
+      clientCode: user.clientCode || null,
       joinDate: user.createdAt || new Date(),
-      projects: 0 // Would need to calculate if needed
+      projects
     };
 
     console.log(`🚨 Admin set ban=${banned} for user`, { id: responseUser.id, email: responseUser.email });
@@ -315,6 +320,81 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
   } catch (error: any) {
     console.error('❌ Error updating user ban status:', error);
     res.status(500).json({ error: 'Failed to update user ban status' });
+  }
+});
+
+// Make a user a client by assigning a client code (Admin only)
+router.patch('/:id/make-client', verifyAdminToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { clientCode } = req.body as { clientCode?: string };
+
+    if (!clientCode) {
+      return res.status(400).json({ error: 'Client code is required' });
+    }
+
+    // Validate client code format: exactly 5 capital letters
+    const codeRegex = /^[A-Z]{5}$/;
+    const trimmedCode = clientCode.trim().toUpperCase();
+
+    if (!codeRegex.test(trimmedCode)) {
+      return res.status(400).json({ error: 'Client code must be exactly 5 capital letters (A-Z)' });
+    }
+
+    // Check if code is already in use
+    const existingClient = await User.findOne({ clientCode: trimmedCode });
+    if (existingClient && existingClient._id.toString() !== id) {
+      return res.status(400).json({ error: 'This client code is already in use' });
+    }
+
+    // Update user with client code
+    const user = (await User.findByIdAndUpdate(
+      id,
+      { $set: { clientCode: trimmedCode } },
+      { new: true }
+    ).lean()) as any;
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get appointment count
+    const projects = await Appointment.countDocuments({ userId: id });
+
+    // Safely check isEmailVerified
+    const isEmailVerified = user.isEmailVerified === true || 
+                           user.isEmailVerified === 'true' || 
+                           user.isEmailVerified === 1 || 
+                           String(user.isEmailVerified).toLowerCase() === 'true';
+    
+    const hasPassword = !!(user.password && String(user.password).trim().length > 0);
+    const isBanned = !!user.isBanned;
+    
+    const responseUser = {
+      id: user._id?.toString() || (user as any).id,
+      name: user.name || 'N/A',
+      email: user.email || '',
+      status: isBanned ? 'banned' : (isEmailVerified ? 'active' : 'inactive'),
+      isEmailVerified: Boolean(isEmailVerified),
+      hasPassword,
+      password: hasPassword ? String(user.password) : null,
+      isBanned,
+      clientCode: user.clientCode || null,
+      joinDate: user.createdAt || new Date(),
+      projects
+    };
+
+    console.log(`✅ Admin assigned client code ${trimmedCode} to user`, { id: responseUser.id, email: responseUser.email });
+    res.json({ user: responseUser });
+  } catch (error: any) {
+    console.error('❌ Error making user a client:', error);
+    
+    // Handle duplicate key error (MongoDB unique constraint)
+    if (error.code === 11000 || error.message?.includes('duplicate key')) {
+      return res.status(400).json({ error: 'This client code is already in use' });
+    }
+    
+    res.status(500).json({ error: 'Failed to make user a client' });
   }
 });
 

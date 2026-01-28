@@ -10,6 +10,7 @@ export interface IUser extends Document {
   isEmailVerified: boolean;
   // Admin moderation
   isBanned?: boolean;
+  clientCode?: string; // 5-digit capital alphabetic code for clients
   emailVerificationCode?: string;
   emailVerificationExpires?: Date;
   passwordResetToken?: string;
@@ -51,6 +52,14 @@ const UserSchema = new Schema<IUser>({
     type: Boolean,
     default: false
   },
+  clientCode: {
+    type: String,
+    uppercase: true,
+    trim: true,
+    match: [/^[A-Z]{5}$/, 'Client code must be exactly 5 capital letters'],
+    sparse: true, // Allows multiple null values but enforces uniqueness for non-null values
+    unique: true
+  },
   emailVerificationCode: {
     type: String
   },
@@ -79,5 +88,6 @@ const UserSchema = new Schema<IUser>({
 // Index for better query performance
 UserSchema.index({ email: 1 });
 UserSchema.index({ googleId: 1 }, { sparse: true }); // Sparse index allows multiple null values
+UserSchema.index({ clientCode: 1 }, { sparse: true, unique: true }); // Unique index for client codes
 
 export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);

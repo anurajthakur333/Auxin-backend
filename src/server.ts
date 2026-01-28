@@ -20,6 +20,7 @@ import meetingCategoriesRoutes from './routes/meetingCategories.js';
 import employeesRoutes from './routes/employees.js';
 import rolesRoutes from './routes/roles.js';
 import subrolesRoutes from './routes/subroles.js';
+import clientsRoutes from './routes/clients.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -233,6 +234,8 @@ app.use('/api/admin/roles', rolesRoutes);
 // Subroles routes - public and admin
 app.use('/api/subroles', subrolesRoutes);
 app.use('/api/admin/subroles', subrolesRoutes);
+// Clients routes - admin only
+app.use('/api/admin/clients', clientsRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
