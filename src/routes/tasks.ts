@@ -103,7 +103,7 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
     }
 
     // Get the task before update to check status change
-    const oldTask = await Task.findById(taskId).lean();
+    const oldTask = await Task.findById(taskId).lean() as { status?: string } | null;
     const wasDone = oldTask?.status === 'done';
     const willBeDone = updateData.status === 'done';
 
@@ -111,7 +111,7 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
       taskId,
       { $set: updateData },
       { new: true, runValidators: true }
-    ).lean();
+    ).lean() as { _id: any; projectId: any; title: string; status: string } | null;
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -119,7 +119,7 @@ router.patch('/admin/tasks/:taskId', verifyAdminToken, async (req, res) => {
 
     // Create notification if task was just completed
     if (!wasDone && willBeDone) {
-      const project = await Project.findById(task.projectId).lean();
+      const project = await Project.findById(task.projectId).lean() as { _id: any; clientId?: any; projectCode?: string } | null;
       if (project && project.clientId) {
         const projectCodeDisplay = project.projectCode ? `PROJECT - ${project.projectCode}` : 'PROJECT';
         await createNotification(

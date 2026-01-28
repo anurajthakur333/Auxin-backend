@@ -218,7 +218,7 @@ router.get('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) => {
   try {
     const invoice = await Invoice.findById(req.params.invoiceId)
       .populate('clientId', 'name email clientCode')
-      .lean();
+      .lean() as any;
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -227,13 +227,13 @@ router.get('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) => {
     // Normalize IDs
     const normalizedInvoice: any = {
       ...invoice,
-      id: invoice._id?.toString() || (invoice as any).id,
+      id: invoice._id?.toString() || invoice.id,
       _id: undefined,
-      clientId: (invoice as any).clientId?._id ? {
-        ...(invoice as any).clientId,
-        id: (invoice as any).clientId._id.toString(),
+      clientId: invoice.clientId?._id ? {
+        ...invoice.clientId,
+        id: invoice.clientId._id.toString(),
         _id: undefined,
-      } : (invoice as any).clientId,
+      } : invoice.clientId,
     };
 
     res.json({ invoice: normalizedInvoice });
@@ -269,12 +269,12 @@ router.patch('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) =>
       }));
     } else if (updateData.discount !== undefined || updateData.sgst !== undefined || updateData.cgst !== undefined) {
       // Recalculate total if tax/discount changed
-      const invoice = await Invoice.findById(req.params.invoiceId).lean();
-      if (invoice) {
-        const itemsTotal = invoice.items.reduce((sum, item) => sum + item.subtotal, 0);
-        const discount = updateData.discount !== undefined ? updateData.discount : invoice.discount;
-        const sgst = updateData.sgst !== undefined ? updateData.sgst : invoice.sgst;
-        const cgst = updateData.cgst !== undefined ? updateData.cgst : invoice.cgst;
+      const existingInvoice = await Invoice.findById(req.params.invoiceId).lean() as any;
+      if (existingInvoice) {
+        const itemsTotal = existingInvoice.items.reduce((sum: number, item: any) => sum + item.subtotal, 0);
+        const discount = updateData.discount !== undefined ? updateData.discount : existingInvoice.discount;
+        const sgst = updateData.sgst !== undefined ? updateData.sgst : existingInvoice.sgst;
+        const cgst = updateData.cgst !== undefined ? updateData.cgst : existingInvoice.cgst;
         const subtotalAfterDiscount = itemsTotal - discount;
         const taxTotal = sgst + cgst;
         updateData.total = subtotalAfterDiscount + taxTotal;
@@ -291,7 +291,7 @@ router.patch('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) =>
       { new: true, runValidators: true }
     )
       .populate('clientId', 'name email clientCode')
-      .lean();
+      .lean() as any;
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -300,13 +300,13 @@ router.patch('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) =>
     // Normalize IDs
     const normalizedInvoice: any = {
       ...invoice,
-      id: invoice._id?.toString() || (invoice as any).id,
+      id: invoice._id?.toString() || invoice.id,
       _id: undefined,
-      clientId: (invoice as any).clientId?._id ? {
-        ...(invoice as any).clientId,
-        id: (invoice as any).clientId._id.toString(),
+      clientId: invoice.clientId?._id ? {
+        ...invoice.clientId,
+        id: invoice.clientId._id.toString(),
         _id: undefined,
-      } : (invoice as any).clientId,
+      } : invoice.clientId,
     };
 
     res.json({ invoice: normalizedInvoice });
@@ -385,7 +385,7 @@ router.get('/invoices/:invoiceId', async (req, res) => {
     const token = authHeader.substring(7);
     const decoded = verifyToken(token) as any;
 
-    const invoice = await Invoice.findById(req.params.invoiceId).lean();
+    const invoice = await Invoice.findById(req.params.invoiceId).lean() as any;
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -421,7 +421,7 @@ router.patch('/invoices/:invoiceId/pay', async (req, res) => {
 
     const { paypalOrderId } = req.body;
 
-    const invoice = await Invoice.findById(req.params.invoiceId).lean();
+    const invoice = await Invoice.findById(req.params.invoiceId).lean() as any;
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
