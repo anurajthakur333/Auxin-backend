@@ -135,6 +135,55 @@ router.get('/check-code/:code', verifyAdminToken, async (req, res) => {
   }
 });
 
+// Get client by code - Admin only
+router.get('/by-code/:code', verifyAdminToken, async (req, res) => {
+  try {
+    const { code } = req.params;
+    const trimmedCode = code.trim().toUpperCase();
+
+    // Validate format
+    const codeRegex = /^[A-Z]{5}$/;
+    if (!codeRegex.test(trimmedCode)) {
+      return res.status(400).json({ error: 'Invalid client code format. Must be exactly 5 capital letters (A-Z)' });
+    }
+
+    // Find user by client code
+    const user = await User.findOne({ clientCode: trimmedCode }).lean() as any;
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Client not found with this code' });
+    }
+
+    // Get appointment count
+    const projects = await Appointment.countDocuments({ userId: user._id?.toString() || user.id });
+
+    // Safely check isEmailVerified
+    const isEmailVerified = user.isEmailVerified === true || 
+                           user.isEmailVerified === 'true' || 
+                           user.isEmailVerified === 1 || 
+                           String(user.isEmailVerified).toLowerCase() === 'true';
+    
+    const isBanned = !!user.isBanned;
+    
+    const client = {
+      id: user._id?.toString() || user.id,
+      name: user.name || 'N/A',
+      email: user.email || '',
+      clientCode: user.clientCode || '',
+      status: isBanned ? 'banned' : (isEmailVerified ? 'active' : 'inactive'),
+      isEmailVerified: Boolean(isEmailVerified),
+      isBanned,
+      joinDate: user.createdAt || new Date(),
+      projects
+    };
+
+    res.json({ client });
+  } catch (error: any) {
+    console.error('❌ Error fetching client by code:', error);
+    res.status(500).json({ error: 'Failed to fetch client' });
+  }
+});
+
 // Update a client's code - Admin only
 router.patch('/:id/code', verifyAdminToken, async (req, res) => {
   try {

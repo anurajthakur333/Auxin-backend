@@ -300,7 +300,7 @@ router.patch('/:id/ban', verifyAdminToken, async (req, res) => {
     
     // Get appointment count
     const projects = await Appointment.countDocuments({ userId: id });
-
+    
     const responseUser = {
       id: user._id?.toString() || (user as any).id,
       name: user.name || 'N/A',

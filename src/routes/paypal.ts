@@ -1,5 +1,6 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
+import Invoice, { IInvoice } from '../models/Invoice.js';
 import { authenticateToken } from '../middleware/auth.js';
 import {
   getOrdersController,
@@ -18,7 +19,7 @@ const getFrontendUrl = (): string => {
     (process.env.NODE_ENV === 'production' ? 'https://auxin.world' : 'http://localhost:5173');
 };
 
-// Create a PayPal order for an appointment
+// Create a PayPal order for an appointment or invoice
 router.post('/create-order', authenticateToken, async (req, res) => {
   try {
     // Validate PayPal configuration
@@ -29,8 +30,88 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    const { date, time, userEmail, userName, timezone, duration, price, slots } = req.body;
+    const { invoiceId, amount, description } = req.body;
     const userId = req.user!.userId;
+
+    // Handle invoice payment
+    if (invoiceId) {
+      const invoice = await Invoice.findById(invoiceId).lean() as (Omit<IInvoice, keyof import('mongoose').Document> & { _id: any }) | null;
+      if (!invoice) {
+        return res.status(404).json({
+          error: 'Invoice not found',
+          code: 'INVOICE_NOT_FOUND'
+        });
+      }
+
+      // Verify invoice belongs to user
+      if (String(invoice.clientId) !== userId) {
+        return res.status(403).json({
+          error: 'Forbidden: Invoice does not belong to you',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // Check if invoice is already paid
+      if (invoice.status === 'paid') {
+        return res.status(400).json({
+          error: 'Invoice is already paid',
+          code: 'INVOICE_ALREADY_PAID'
+        });
+      }
+
+      const frontendUrl = getFrontendUrl();
+      const returnUrl = `${frontendUrl}/payment/success?invoiceId=${invoice._id}`;
+      const cancelUrl = `${frontendUrl}/payment/cancel?invoiceId=${invoice._id}`;
+
+      const ordersController = getOrdersController();
+      const orderRequest: any = {
+        intent: 'CAPTURE',
+        purchaseUnits: [{
+          referenceId: invoice._id.toString(),
+          description: description || `Invoice ${invoice.invoiceNumber}`,
+          amount: {
+            currencyCode: 'USD',
+            value: String(invoice.total.toFixed(2))
+          }
+        }],
+        applicationContext: {
+          returnUrl,
+          cancelUrl,
+          brandName: 'Auxin Media Digital',
+          userAction: 'PAY_NOW'
+        }
+      };
+
+      const { result: order } = await ordersController.createOrder({ body: orderRequest });
+
+      // Update invoice with PayPal order ID
+      await Invoice.findByIdAndUpdate(invoiceId, {
+        $set: { paypalOrderId: order.id }
+      });
+
+      const approvalUrl = order.links?.find((link: any) => link.rel === 'payer-action')?.href ||
+                         order.links?.find((link: any) => link.rel === 'approve')?.href;
+
+      if (!approvalUrl) {
+        return res.status(500).json({
+          error: 'Failed to get PayPal approval URL',
+          code: 'PAYPAL_APPROVAL_URL_ERROR'
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: 'PayPal order created successfully',
+        orderId: order.id,
+        approvalUrl,
+        invoiceId: invoice._id,
+        amount: invoice.total,
+        currency: 'USD'
+      });
+    }
+
+    // Handle appointment payment (existing logic)
+    const { date, time, userEmail, userName, timezone, duration, price, slots } = req.body;
     
     // Use provided price or fallback to default
     const meetingPrice = price ? String(price) : MEETING_PRICE;
@@ -274,9 +355,98 @@ router.post('/create-order', authenticateToken, async (req, res) => {
 // Capture a PayPal order after user approves
 router.post('/capture-order', authenticateToken, async (req, res) => {
   try {
-    const { orderId, appointmentId, categoryId, categoryName, formAnswers } = req.body;
+    const { orderId, appointmentId, invoiceId, categoryId, categoryName, formAnswers } = req.body;
     const userId = req.user!.userId;
 
+    // Handle invoice payment capture
+    if (invoiceId) {
+      if (!orderId || !invoiceId) {
+        return res.status(400).json({
+          error: 'Order ID and Invoice ID are required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      const invoice = await Invoice.findOne({
+        _id: invoiceId,
+        clientId: userId,
+        paypalOrderId: orderId
+      });
+
+      if (!invoice) {
+        return res.status(404).json({
+          error: 'Invoice not found or order ID mismatch',
+          code: 'INVOICE_NOT_FOUND'
+        });
+      }
+
+      if (invoice.status === 'paid') {
+        return res.json({
+          success: true,
+          message: 'Payment already completed',
+          invoice: {
+            id: invoice._id,
+            invoiceNumber: invoice.invoiceNumber,
+            status: invoice.status,
+            total: invoice.total
+          }
+        });
+      }
+
+      const ordersController = getOrdersController();
+
+      try {
+        const { result: capturedOrder } = await ordersController.captureOrder({ id: orderId });
+
+        if (capturedOrder.status === 'COMPLETED') {
+          await Invoice.findByIdAndUpdate(invoiceId, {
+            $set: {
+              status: 'paid',
+              paypalOrderId: orderId
+            }
+          });
+
+          const updatedInvoice = await Invoice.findById(invoiceId);
+
+          return res.json({
+            success: true,
+            message: 'Payment completed successfully',
+            invoice: {
+              id: updatedInvoice!._id,
+              invoiceNumber: updatedInvoice!.invoiceNumber,
+              status: updatedInvoice!.status,
+              total: updatedInvoice!.total
+            }
+          });
+        } else {
+          return res.status(400).json({
+            error: 'Payment was not completed',
+            code: 'PAYMENT_NOT_COMPLETED',
+            status: capturedOrder.status
+          });
+        }
+      } catch (error: any) {
+        // Handle ORDER_ALREADY_CAPTURED
+        if (error?.statusCode === 422) {
+          const updatedInvoice = await Invoice.findById(invoiceId);
+          if (updatedInvoice && updatedInvoice.status === 'paid') {
+            return res.json({
+              success: true,
+              message: 'Payment already completed',
+              invoice: {
+                id: updatedInvoice._id,
+                invoiceNumber: updatedInvoice.invoiceNumber,
+                status: updatedInvoice.status,
+                total: updatedInvoice.total
+              }
+            });
+          }
+        }
+        throw error;
+      }
+    }
+
+    // Handle appointment payment capture (existing logic)
     if (!orderId || !appointmentId) {
       return res.status(400).json({
         error: 'Order ID and Appointment ID are required',

@@ -632,10 +632,10 @@ router.get('/verify', async (req, res) => {
     });
 
     const responseUser = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
       isEmailVerified: user.isEmailVerified,
       clientCode: (userObj as any).clientCode || null
     };
