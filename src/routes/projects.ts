@@ -1,6 +1,7 @@
 import express from 'express';
 import Project from '../models/Project.js';
 import User from '../models/User.js';
+import Task from '../models/Task.js';
 import { verifyToken } from '../lib/jwt.js';
 
 const router = express.Router();
@@ -48,8 +49,41 @@ router.get('/client/:clientId', verifyAdminToken, async (req, res) => {
     const projects = await Project.find({ clientId })
       .sort({ createdAt: -1 })
       .lean();
-    
-    res.json({ projects });
+
+    const projectIds = projects.map(p => p._id);
+
+    const taskCounts = await Task.aggregate([
+      { $match: { projectId: { $in: projectIds } } },
+      {
+        $group: {
+          _id: '$projectId',
+          total: { $sum: 1 },
+          completed: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'done'] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const countsMap = new Map<string, { total: number; completed: number }>();
+    taskCounts.forEach((c: any) => {
+      countsMap.set(String(c._id), { total: c.total || 0, completed: c.completed || 0 });
+    });
+
+    const projectsWithCounts = projects.map((p: any) => {
+      const counts = countsMap.get(String(p._id)) || { total: 0, completed: 0 };
+      return {
+        ...p,
+        tasks: {
+          total: counts.total,
+          completed: counts.completed,
+        },
+      };
+    });
+
+    res.json({ projects: projectsWithCounts });
   } catch (error: any) {
     console.error('❌ Error fetching client projects:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });
@@ -217,8 +251,41 @@ router.get('/my-projects', async (req, res) => {
     const projects = await Project.find({ clientId: user._id })
       .sort({ createdAt: -1 })
       .lean();
+    
+    const projectIds = projects.map(p => p._id);
 
-    res.json({ projects });
+    const taskCounts = await Task.aggregate([
+      { $match: { projectId: { $in: projectIds } } },
+      {
+        $group: {
+          _id: '$projectId',
+          total: { $sum: 1 },
+          completed: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'done'] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const countsMap = new Map<string, { total: number; completed: number }>();
+    taskCounts.forEach((c: any) => {
+      countsMap.set(String(c._id), { total: c.total || 0, completed: c.completed || 0 });
+    });
+
+    const projectsWithCounts = projects.map((p: any) => {
+      const counts = countsMap.get(String(p._id)) || { total: 0, completed: 0 };
+      return {
+        ...p,
+        tasks: {
+          total: counts.total,
+          completed: counts.completed,
+        },
+      };
+    });
+
+    res.json({ projects: projectsWithCounts });
   } catch (error: any) {
     console.error('❌ Error fetching user projects:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });

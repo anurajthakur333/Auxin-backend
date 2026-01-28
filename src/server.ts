@@ -22,6 +22,7 @@ import rolesRoutes from './routes/roles.js';
 import subrolesRoutes from './routes/subroles.js';
 import clientsRoutes from './routes/clients.js';
 import projectsRoutes from './routes/projects.js';
+import tasksRoutes from './routes/tasks.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -240,6 +241,8 @@ app.use('/api/admin/clients', clientsRoutes);
 // Projects routes - admin and client
 app.use('/api/admin/projects', projectsRoutes);
 app.use('/api/projects', projectsRoutes);
+// Tasks routes - admin and client
+app.use('/api', tasksRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
