@@ -74,11 +74,19 @@ router.get('/client/:clientId', verifyAdminToken, async (req, res) => {
 
     const projectsWithCounts = projects.map((p: any) => {
       const counts = countsMap.get(String(p._id)) || { total: 0, completed: 0 };
+      const totalTasks = counts.total;
+      const completedTasks = counts.completed;
+
+      // Derive progress from tasks: if no tasks exist, progress is 0%
+      const derivedProgress =
+        totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
       return {
         ...p,
+        progress: derivedProgress,
         tasks: {
-          total: counts.total,
-          completed: counts.completed,
+          total: totalTasks,
+          completed: completedTasks,
         },
       };
     });
@@ -276,11 +284,19 @@ router.get('/my-projects', async (req, res) => {
 
     const projectsWithCounts = projects.map((p: any) => {
       const counts = countsMap.get(String(p._id)) || { total: 0, completed: 0 };
+      const totalTasks = counts.total;
+      const completedTasks = counts.completed;
+
+      // Derive progress from tasks: if no tasks exist, progress is 0%
+      const derivedProgress =
+        totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
       return {
         ...p,
+        progress: derivedProgress,
         tasks: {
-          total: counts.total,
-          completed: counts.completed,
+          total: totalTasks,
+          completed: completedTasks,
         },
       };
     });
