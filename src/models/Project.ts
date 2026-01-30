@@ -6,7 +6,7 @@ export interface IProject extends Document {
   projectCode?: string;
   description?: string;
   clientId: mongoose.Types.ObjectId; // Reference to User with clientCode
-  category: 'branding' | 'web-design' | 'marketing' | 'seo' | 'development';
+  category: string; // Dynamic - managed through ProjectCategory
   status: 'active' | 'pending' | 'completed' | 'on-hold';
   progress: number; // 0-100
   deadline: Date;
@@ -47,8 +47,9 @@ const ProjectSchema = new Schema<IProject>({
   },
   category: {
     type: String,
-    enum: ['branding', 'web-design', 'marketing', 'seo', 'development'],
-    required: true
+    required: true,
+    trim: true,
+    lowercase: true
   },
   status: {
     type: String,

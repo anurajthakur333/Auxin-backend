@@ -1,6 +1,10 @@
 import express from 'express';
 import User from '../models/User.js';
 import Appointment from '../models/Appointment.js';
+import Project from '../models/Project.js';
+import Task from '../models/Task.js';
+import Invoice from '../models/Invoice.js';
+import Notification from '../models/Notification.js';
 import { verifyToken } from '../lib/jwt.js';
 
 const router = express.Router();
@@ -258,6 +262,120 @@ router.patch('/:id/code', verifyAdminToken, async (req, res) => {
     }
     
     res.status(500).json({ error: 'Failed to update client code' });
+  }
+});
+
+// Convert client to regular user (removes client code but keeps all data) - Admin only
+router.patch('/:id/convert-to-user', verifyAdminToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the user
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.clientCode) {
+      return res.status(400).json({ error: 'User is not a client' });
+    }
+
+    const previousCode = user.clientCode;
+
+    // Remove client code (convert to regular user)
+    user.clientCode = undefined;
+    await user.save();
+
+    console.log(`✅ Converted client ${previousCode} to regular user`, { id, email: user.email });
+    
+    res.json({ 
+      message: 'Client converted to regular user successfully. User can no longer access the dashboard.',
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        previousClientCode: previousCode
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Error converting client to user:', error);
+    res.status(500).json({ error: 'Failed to convert client to user' });
+  }
+});
+
+// Delete client and all associated data - Admin only
+router.delete('/:id', verifyAdminToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the user first
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.clientCode) {
+      return res.status(400).json({ error: 'User is not a client. Use the Users tab to manage regular users.' });
+    }
+
+    const clientInfo = {
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      clientCode: user.clientCode
+    };
+
+    // Delete all associated data
+    const deletedData = {
+      projects: 0,
+      tasks: 0,
+      invoices: 0,
+      notifications: 0,
+      appointments: 0
+    };
+
+    // 1. Get all projects for this client
+    const projects = await Project.find({ clientId: id });
+    const projectIds = projects.map(p => p._id);
+
+    // 2. Delete all tasks for these projects
+    if (projectIds.length > 0) {
+      const taskResult = await Task.deleteMany({ projectId: { $in: projectIds } });
+      deletedData.tasks = taskResult.deletedCount;
+    }
+
+    // 3. Delete all projects
+    const projectResult = await Project.deleteMany({ clientId: id });
+    deletedData.projects = projectResult.deletedCount;
+
+    // 4. Delete all invoices
+    const invoiceResult = await Invoice.deleteMany({ clientId: id });
+    deletedData.invoices = invoiceResult.deletedCount;
+
+    // 5. Delete all notifications
+    const notificationResult = await Notification.deleteMany({ userId: id });
+    deletedData.notifications = notificationResult.deletedCount;
+
+    // 6. Delete all appointments
+    const appointmentResult = await Appointment.deleteMany({ userId: id });
+    deletedData.appointments = appointmentResult.deletedCount;
+
+    // 7. Finally delete the user
+    await User.findByIdAndDelete(id);
+
+    console.log(`✅ Deleted client and all associated data`, { 
+      clientInfo, 
+      deletedData 
+    });
+
+    res.json({ 
+      message: 'Client and all associated data deleted successfully',
+      deletedClient: clientInfo,
+      deletedData
+    });
+  } catch (error: any) {
+    console.error('❌ Error deleting client:', error);
+    res.status(500).json({ error: 'Failed to delete client' });
   }
 });
 

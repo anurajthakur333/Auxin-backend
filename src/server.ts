@@ -25,6 +25,7 @@ import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import invoicesRoutes from './routes/invoices.js';
 import notificationsRoutes from './routes/notifications.js';
+import projectCategoriesRoutes from './routes/projectCategories.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -248,6 +249,7 @@ app.use('/api', tasksRoutes);
 // Invoices routes - admin and client
 app.use('/api', invoicesRoutes);
 app.use('/api', notificationsRoutes);
+app.use('/api/project-categories', projectCategoriesRoutes);
 
 // Debug: Log all registered routes in development
 if (process.env.NODE_ENV === 'development') {
