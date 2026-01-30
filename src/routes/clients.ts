@@ -178,7 +178,8 @@ router.get('/by-code/:code', verifyAdminToken, async (req, res) => {
       isEmailVerified: Boolean(isEmailVerified),
       isBanned,
       joinDate: user.createdAt || new Date(),
-      projects
+      projects,
+      billingInfo: user.billingInfo || {}
     };
 
     res.json({ client });
@@ -376,6 +377,92 @@ router.delete('/:id', verifyAdminToken, async (req, res) => {
   } catch (error: any) {
     console.error('❌ Error deleting client:', error);
     res.status(500).json({ error: 'Failed to delete client' });
+  }
+});
+
+// =====================================================
+// CLIENT-SIDE BILLING INFO ROUTES (Authenticated Users)
+// =====================================================
+
+// Middleware to verify user token
+const verifyUserToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    }
+
+    const token = authHeader.substring(7);
+    
+    try {
+      const decoded = verifyToken(token) as any;
+      (req as any).user = decoded;
+      next();
+    } catch (error) {
+      console.error('User token verification error:', error);
+      return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    }
+  } catch (error) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid token format' });
+  }
+};
+
+// Get current user's billing info
+router.get('/user/billing-info', verifyUserToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.id || (req as any).user.userId;
+    
+    const user = await User.findById(userId).lean() as any;
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      billingInfo: user.billingInfo || {},
+      name: user.name,
+      email: user.email
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching user billing info:', error);
+    res.status(500).json({ error: 'Failed to fetch billing info' });
+  }
+});
+
+// Update current user's billing info
+router.patch('/user/billing-info', verifyUserToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.id || (req as any).user.userId;
+    const { phone, address, city, state, country, zip, gstNumber } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          'billingInfo.phone': phone,
+          'billingInfo.address': address,
+          'billingInfo.city': city,
+          'billingInfo.state': state,
+          'billingInfo.country': country,
+          'billingInfo.zip': zip,
+          'billingInfo.gstNumber': gstNumber
+        }
+      },
+      { new: true }
+    ).lean() as any;
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log(`✅ Updated billing info for user ${userId}`);
+    res.json({
+      message: 'Billing info updated successfully',
+      billingInfo: user.billingInfo || {}
+    });
+  } catch (error: any) {
+    console.error('❌ Error updating user billing info:', error);
+    res.status(500).json({ error: 'Failed to update billing info' });
   }
 });
 

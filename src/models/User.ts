@@ -1,5 +1,15 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface IBillingInfo {
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip?: string;
+  gstNumber?: string;
+}
+
 export interface IUser extends Document {
   _id: string;
   name: string;
@@ -11,6 +21,8 @@ export interface IUser extends Document {
   // Admin moderation
   isBanned?: boolean;
   clientCode?: string; // 5-digit capital alphabetic code for clients
+  // Billing information
+  billingInfo?: IBillingInfo;
   emailVerificationCode?: string;
   emailVerificationExpires?: Date;
   passwordResetToken?: string;
@@ -59,6 +71,15 @@ const UserSchema = new Schema<IUser>({
     match: [/^[A-Z]{5}$/, 'Client code must be exactly 5 capital letters'],
     sparse: true, // Allows multiple null values but enforces uniqueness for non-null values
     unique: true
+  },
+  billingInfo: {
+    phone: { type: String, trim: true },
+    address: { type: String, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
+    country: { type: String, trim: true },
+    zip: { type: String, trim: true },
+    gstNumber: { type: String, trim: true }
   },
   emailVerificationCode: {
     type: String
