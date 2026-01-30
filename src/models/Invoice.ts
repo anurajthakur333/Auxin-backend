@@ -38,6 +38,8 @@ export interface IInvoice extends Document {
   _id: string;
   invoiceNumber: string; // Auto-generated: INV-YYYY-XXX
   clientId: mongoose.Types.ObjectId; // Reference to User
+  projectId?: mongoose.Types.ObjectId; // Reference to Project (optional)
+  projectCode?: string; // Project code for easy reference
   date: Date;
   dueDate: Date;
   billTo: IClientAddress;
@@ -104,6 +106,17 @@ const InvoiceSchema = new Schema<IInvoice>({
     type: Schema.Types.ObjectId,
     ref: 'User',
     required: true,
+    index: true,
+  },
+  projectId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Project',
+    index: true,
+  },
+  projectCode: {
+    type: String,
+    trim: true,
+    uppercase: true,
     index: true,
   },
   date: {

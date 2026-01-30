@@ -48,6 +48,8 @@ router.post('/admin/invoices', verifyAdminToken, async (req, res) => {
     
     const {
       clientId,
+      projectId,
+      projectCode,
       date,
       dueDate,
       billTo,
@@ -130,6 +132,8 @@ router.post('/admin/invoices', verifyAdminToken, async (req, res) => {
 
     const invoice = new Invoice({
       clientId,
+      projectId: projectId || undefined,
+      projectCode: projectCode ? projectCode.trim().toUpperCase() : undefined,
       date: new Date(date),
       dueDate: new Date(dueDate),
       billTo,

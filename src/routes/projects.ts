@@ -42,6 +42,104 @@ const verifyAdminToken = (req: express.Request, res: express.Response, next: exp
   }
 };
 
+// Get all projects - Admin only
+router.get('/', verifyAdminToken, async (req, res) => {
+  try {
+    const projects = await Project.aggregate([
+      {
+        $lookup: {
+          from: 'tasks',
+          localField: '_id',
+          foreignField: 'projectId',
+          as: 'taskList'
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'clientId',
+          foreignField: '_id',
+          as: 'client'
+        }
+      },
+      {
+        $addFields: {
+          tasks: {
+            total: { $size: '$taskList' },
+            completed: {
+              $size: {
+                $filter: {
+                  input: '$taskList',
+                  as: 'task',
+                  cond: { $eq: ['$$task.status', 'done'] }
+                }
+              }
+            }
+          },
+          progress: {
+            $cond: {
+              if: { $gt: [{ $size: '$taskList' }, 0] },
+              then: {
+                $multiply: [
+                  {
+                    $divide: [
+                      {
+                        $size: {
+                          $filter: {
+                            input: '$taskList',
+                            as: 'task',
+                            cond: { $eq: ['$$task.status', 'done'] }
+                          }
+                        }
+                      },
+                      { $size: '$taskList' }
+                    ]
+                  },
+                  100
+                ]
+              },
+              else: '$progress'
+            }
+          },
+          clientInfo: { $arrayElemAt: ['$client', 0] }
+        }
+      },
+      {
+        $project: {
+          taskList: 0,
+          client: 0
+        }
+      },
+      { $sort: { createdAt: -1 } }
+    ]);
+
+    // Transform for response
+    const transformedProjects = projects.map((project: any) => ({
+      id: project._id,
+      name: project.name,
+      projectCode: project.projectCode,
+      description: project.description,
+      category: project.category,
+      status: project.status,
+      progress: Math.round(project.progress || 0),
+      deadline: project.deadline,
+      startDate: project.startDate,
+      budget: project.budget,
+      team: project.team,
+      tasks: project.tasks,
+      clientId: project.clientId,
+      clientName: project.clientInfo?.name,
+      clientEmail: project.clientInfo?.email,
+      clientCode: project.clientInfo?.clientCode,
+    }));
+
+    res.json({ projects: transformedProjects });
+  } catch (error) {
+    console.error('❌ Error fetching all projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+});
+
 // Get all projects for a specific client - Admin only
 router.get('/client/:clientId', verifyAdminToken, async (req, res) => {
   try {
