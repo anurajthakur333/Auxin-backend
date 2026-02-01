@@ -214,7 +214,9 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-// Routes
+// Routes - mount email verification BEFORE auth so /api/auth/send-otp and verify-email are reached
+app.use('/auth', emailVerificationRoutes);
+app.use('/api/auth', emailVerificationRoutes);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/paypal', paypalRoutes);
@@ -268,10 +270,6 @@ if (process.env.NODE_ENV === 'development') {
   console.log('  - /api/admin/categories (admin only)');
   console.log('  - /api/admin/categories/:id (admin only)');
 }
-
-// Email verification endpoints (mount under both to support clients using either prefix)
-app.use('/auth', emailVerificationRoutes);
-app.use('/api/auth', emailVerificationRoutes);
 
 // Add direct auth routes (without /api prefix) for OAuth/login/register
 app.use('/auth', authLimiter, authRoutes);

@@ -320,6 +320,164 @@ router.patch('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) =>
   }
 });
 
+// ADMIN: Full update invoice (PUT)
+router.put('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) => {
+  try {
+    console.log('📝 Updating invoice with data:', JSON.stringify(req.body, null, 2));
+    
+    const {
+      clientId,
+      projectId,
+      projectCode,
+      date,
+      dueDate,
+      billTo,
+      companyAddress,
+      items,
+      discount = 0,
+      sgst = 0,
+      cgst = 0,
+      paymentTerms,
+      paymentMethod,
+    } = req.body;
+
+    // Check if invoice exists
+    const existingInvoice = await Invoice.findById(req.params.invoiceId);
+    if (!existingInvoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    // Validate required fields
+    if (!clientId || !date || !dueDate || !billTo || !companyAddress || !items || items.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate billTo fields
+    if (!billTo.name || !billTo.email || !billTo.address) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: 'Bill To: name, email, and address are required' 
+      });
+    }
+
+    // Validate companyAddress fields
+    if (!companyAddress.companyName || !companyAddress.email || !companyAddress.street || 
+        !companyAddress.city || !companyAddress.state || !companyAddress.zip || !companyAddress.country) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: 'Company Address: all fields (companyName, email, street, city, state, zip, country) are required' 
+      });
+    }
+
+    // Verify client exists
+    const client = await User.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Calculate total from items
+    const itemsTotal = items.reduce((sum: number, item: any) => {
+      const subtotal = (item.price || 0) * (item.quantity || 0);
+      return sum + subtotal;
+    }, 0);
+
+    const subtotalAfterDiscount = itemsTotal - (discount || 0);
+    const taxTotal = (sgst || 0) + (cgst || 0);
+    const total = subtotalAfterDiscount + taxTotal;
+
+    // Validate and create invoice items with calculated subtotals
+    const invoiceItems = [];
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (!item.title || typeof item.title !== 'string' || item.title.trim() === '') {
+        return res.status(400).json({ 
+          error: 'Validation failed', 
+          details: `Item ${index + 1}: title is required` 
+        });
+      }
+      if (typeof item.price !== 'number' || item.price < 0) {
+        return res.status(400).json({ 
+          error: 'Validation failed', 
+          details: `Item ${index + 1}: price must be a non-negative number` 
+        });
+      }
+      if (typeof item.quantity !== 'number' || item.quantity < 1) {
+        return res.status(400).json({ 
+          error: 'Validation failed', 
+          details: `Item ${index + 1}: quantity must be at least 1` 
+        });
+      }
+      invoiceItems.push({
+        title: item.title.trim(),
+        price: Number(item.price),
+        quantity: Number(item.quantity),
+        subtotal: Number(item.price) * Number(item.quantity),
+      });
+    }
+
+    const updateData = {
+      clientId,
+      projectId: projectId || undefined,
+      projectCode: projectCode ? projectCode.trim().toUpperCase() : undefined,
+      date: new Date(date),
+      dueDate: new Date(dueDate),
+      billTo,
+      companyAddress,
+      items: invoiceItems,
+      discount: discount || 0,
+      sgst: sgst || 0,
+      cgst: cgst || 0,
+      total,
+      paymentTerms: paymentTerms || undefined,
+      paymentMethod: paymentMethod && Object.values(paymentMethod).some((v) => v) ? paymentMethod : undefined,
+    };
+
+    const invoice = await Invoice.findByIdAndUpdate(
+      req.params.invoiceId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    )
+      .populate('clientId', 'name email clientCode')
+      .lean() as any;
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    // Normalize IDs
+    const normalizedInvoice: any = {
+      ...invoice,
+      id: invoice._id?.toString() || invoice.id,
+      _id: undefined,
+      clientId: invoice.clientId?._id ? {
+        ...invoice.clientId,
+        id: invoice.clientId._id.toString(),
+        _id: undefined,
+      } : invoice.clientId,
+    };
+
+    console.log('✅ Invoice updated successfully:', normalizedInvoice.id);
+    res.json({ invoice: normalizedInvoice });
+  } catch (error: any) {
+    console.error('❌ Error updating invoice:', error);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors || {}).map((err: any) => err.message);
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors.join(', ') 
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to update invoice', 
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error' 
+    });
+  }
+});
+
 // ADMIN: Delete invoice
 router.delete('/admin/invoices/:invoiceId', verifyAdminToken, async (req, res) => {
   try {

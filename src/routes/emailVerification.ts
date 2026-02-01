@@ -97,26 +97,49 @@ async function sendVerificationEmail(to: string, verificationLink: string, from:
   return response;
 }
 
-// POST /send-verification - Send verification email with link
+/** Extract a safe, readable message from Brevo SDK errors (no API keys). */
+function getBrevoErrorMessage(err: any): string {
+  if (!err) return 'Email provider error';
+  const body = err?.body ?? err?.response?.body;
+  const msg = typeof body?.message === 'string' ? body.message : err?.message;
+  const code = body?.code ?? err?.response?.status;
+  if (msg) return msg;
+  if (code === 401 || err?.response?.status === 401) return 'Invalid Brevo API key or unauthorized. Check BREVO_API_KEY and Brevo dashboard (API keys & authorized IPs).';
+  if (code === 400 || err?.response?.status === 400) return 'Bad request to email provider (e.g. sender not allowed). Check MAIL_FROM is a verified sender in Brevo.';
+  return err?.message || 'Email provider error';
+}
+
+// POST /send-verification - Send verification email with link (no auth required)
 router.post(['/send-otp', '/send-verification'], async (req: Request, res: Response) => {
   try {
-    const { email } = req.body as { email: string };
-    console.log('📧 Send verification email request for:', email);
-    
-    // Validate Brevo API key
-    if (!process.env.BREVO_API_KEY) {
-      console.error('❌ BREVO_API_KEY not configured!');
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Email service not configured.'
-      });
-    }
-    
-    if (!email) {
+    const { email } = req.body as { email?: string };
+    console.log('📧 Send verification email request for:', email ?? '(missing)');
+
+    if (!email || typeof email !== 'string') {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    // Validate config early so we return a clear status (503 = service unavailable)
+    if (!process.env.BREVO_API_KEY) {
+      console.error('❌ BREVO_API_KEY not configured!');
+      return res.status(503).json({
+        success: false,
+        error: 'Email service is not configured. Please try again later.',
+      });
+    }
+    const from = process.env.MAIL_FROM;
+    if (!from) {
+      console.error('❌ MAIL_FROM not set');
+      return res.status(503).json({
+        success: false,
+        error: 'Email sender is not configured. Please try again later.',
+      });
+    }
 
     // Check for user or pending user
     let user = await User.findOne({ email: normalizedEmail });
@@ -144,38 +167,34 @@ router.post(['/send-otp', '/send-verification'], async (req: Request, res: Respo
     }
     console.log('✅ Verification token generated');
 
-    const from = process.env.MAIL_FROM;
-    if (!from) {
-      console.error('❌ MAIL_FROM not set');
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Email sender not configured.'
-      });
-    }
-    
-    // Build verification link - points to BACKEND which then redirects to frontend
-    // Prefer explicit BACKEND_URL, otherwise derive from the incoming request
     const derivedBackendUrl = `${req.protocol}://${req.get('host')}`;
     const backendUrl = process.env.BACKEND_URL || derivedBackendUrl;
     const verificationLink = `${backendUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(normalizedEmail)}`;
-    
-    console.log('🔗 Verification link:', verificationLink);
-    console.log('📤 Sending email to:', normalizedEmail);
 
+    console.log('📤 Sending email to:', normalizedEmail);
     try {
       await sendVerificationEmail(normalizedEmail, verificationLink, from);
       console.log('✅ Verification email sent successfully!');
     } catch (mailError: any) {
-      console.error('❌ Email send error:', mailError.body || mailError.message);
-      throw mailError;
+      const serverMsg = getBrevoErrorMessage(mailError);
+      console.error('❌ Brevo send error:', serverMsg);
+      console.error('   (response status:', mailError?.response?.status, ', body:', JSON.stringify(mailError?.body ?? mailError?.response?.body ?? {}), ')');
+      const isDev = process.env.NODE_ENV !== 'production';
+      return res.status(502).json({
+        success: false,
+        error: isDev
+          ? `Could not send verification email. ${serverMsg}`
+          : 'Could not send verification email. Please try again later.',
+      });
     }
 
     return res.json({ success: true, message: 'Verification email sent! Please check your inbox.' });
   } catch (err: any) {
     console.error('❌ send-verification error:', err);
-    return res.status(500).json({ 
-      success: false, 
-      error: err.message || 'Failed to send verification email'
+    if (res.headersSent) return;
+    return res.status(500).json({
+      success: false,
+      error: err?.message ?? 'Failed to send verification email',
     });
   }
 });
